@@ -1,4 +1,4 @@
-import { Platform, StatusBar, StyleSheet } from 'react-native';
+import { StyleSheet, Platform, StatusBar } from 'react-native';
 
 export const THEME = {
   bg:       "#EEF4FB",
@@ -85,7 +85,10 @@ export function makeStyles(T) {
     progressFill: { height:5, borderRadius:5 },
 
     // ── Task cards ───────────────────────────────────────────────────────────
-    card:         { backgroundColor:T.surface, borderWidth:1, borderColor:T.border, borderRadius:14, marginBottom:8, overflow:"hidden" },
+    // FIX: overflow:"hidden" retiré — c'était la cause du bug de repaint Android
+    // qui faisait disparaitre le texte des cartes apres un changement d'etat rapide
+    // (ex: toggle "important"). borderRadius fonctionne toujours sans overflow:hidden.
+    card:         { backgroundColor:T.surface, borderWidth:1, borderColor:T.border, borderRadius:14, marginBottom:8 },
     cardDone:     { backgroundColor:"#F0FFF4", borderColor:"#86EFAC" },
     cardImportant:{ borderLeftWidth:4, borderLeftColor:T.important },
     cardRow:      { flexDirection:"row", alignItems:"center", gap:12, padding:13 },
@@ -95,7 +98,9 @@ export function makeStyles(T) {
     cardTime:     { fontSize:11, color:T.muted },
     cardMeta:     { fontSize:11, color:T.muted, marginTop:2 },
     mealPrev:     { fontSize:12, color:T.muted, marginTop:2, fontStyle:"italic" },
-    mealInput:    { borderTopWidth:1, borderTopColor:T.border, padding:10, fontSize:13, color:T.text, backgroundColor:T.bg },
+    // borderRadius ajouté ici en bas pour compenser la perte du clip automatique
+    // qu'offrait overflow:"hidden" sur les coins inférieurs de la carte repas
+    mealInput:    { borderTopWidth:1, borderTopColor:T.border, padding:10, fontSize:13, color:T.text, backgroundColor:T.bg, borderBottomLeftRadius:14, borderBottomRightRadius:14 },
     actBtn:       { borderWidth:1, borderColor:T.border, borderRadius:7, backgroundColor:T.bg, paddingHorizontal:9, paddingVertical:5 },
     actBtnRed:    { borderWidth:1, borderColor:T.danger+"33", borderRadius:7, backgroundColor:"#FFF5F5", paddingHorizontal:9, paddingVertical:5 },
     addBtn:       { borderWidth:1.5, borderStyle:"dashed", borderRadius:14, padding:15, alignItems:"center", marginTop:4, marginBottom:16 },
@@ -114,3 +119,4 @@ export function makeStyles(T) {
     profileDesc:       { fontSize:12, color:T.muted, marginTop:3 },
   });
 }
+
