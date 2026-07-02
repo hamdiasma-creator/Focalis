@@ -1,1 +1,24 @@
 
+{
+  "expo": {
+    "name": "Focalis",
+    "slug": "focalis",
+    "version": "1.0.0",
+    "sdkVersion": "50.0.0",
+    "orientation": "portrait",
+    "splash": {
+      "backgroundColor": "#EEF4FB"
+    },
+    "android": {
+      "package": "com.focalis.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#EEF4FB"
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "REMPLACER_PAR_TON_PROJECT_ID"
+      }
+    }
+  }
+}
