@@ -7,10 +7,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
 import { THEME, makeStyles } from './src/theme';
 
-// Police par defaut pour tous les <Text> sans style fontFamily explicite
-// (couvre les petits textes inline qui ne passent pas par makeStyles)
-Text.defaultProps = Text.defaultProps || {};
-Text.defaultProps.style = [{ fontFamily: 'Lexend_400Regular' }, Text.defaultProps.style];
 
 let Notifications = null;
 try { Notifications = require('expo-notifications'); } catch (e) {}
@@ -364,11 +360,11 @@ export default function App() {
   // Chargement de la police Lexend depuis des fichiers locaux
   // (contourne le bug de resolution Snack avec @expo-google-fonts/lexend)
   const [fontsLoaded] = useFonts({
-    Lexend_400Regular: require('./assets/fonts/Lexend-Regular.ttf'),
-    Lexend_500Medium: require('./assets/fonts/Lexend-Medium.ttf'),
-    Lexend_600SemiBold: require('./assets/fonts/Lexend-SemiBold.ttf'),
-    Lexend_700Bold: require('./assets/fonts/Lexend-Bold.ttf'),
-    Lexend_800ExtraBold: require('./assets/fonts/Lexend-ExtraBold.ttf'),
+    Lexend_400Regular: require('./assets/font/Lexend-Regular.ttf'),
+    Lexend_500Medium: require('./assets/font/Lexend-Medium.ttf'),
+    Lexend_600SemiBold: require('./assets/font/Lexend-SemiBold.ttf'),
+    Lexend_700Bold: require('./assets/font/Lexend-Bold.ttf'),
+    Lexend_800ExtraBold: require('./assets/font/Lexend-ExtraBold.ttf'),
   });
 
   // Core state
@@ -661,7 +657,7 @@ export default function App() {
   if (!ready || !cycleStart || !fontsLoaded) {
     return (
       <SafeAreaView style={{ flex:1, backgroundColor:T.bg, justifyContent:"center", alignItems:"center" }}>
-        <Text style={{ color:T.muted, fontSize:16 }}>Chargement...</Text>
+        <Text style={{ color:T.muted, fontSize:16, fontFamily:"Lexend_400Regular" }}>Chargement...</Text>
       </SafeAreaView>
     );
   }
@@ -1137,7 +1133,7 @@ export default function App() {
         </View>
         <View style={{alignItems:"flex-end"}}>
           <Text style={[s.dayHeaderPct,{color:pct===100?T.check:colors.accent}]}>{pct}%</Text>
-          <Text style={{fontSize:11,color:T.muted}}>{prog.done}/{prog.total} taches</Text>
+          <Text style={{fontSize:11,color:T.muted,fontFamily:"Lexend_400Regular"}}>{prog.done}/{prog.total} taches</Text>
         </View>
       </View>
 
