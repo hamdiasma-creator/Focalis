@@ -1,19 +1,347 @@
 import { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  Modal, StyleSheet, SafeAreaView, StatusBar, Platform
+  Modal, SafeAreaView, StatusBar, Platform
 } from 'react-native';
-
-import { WEEKS, DAYS, DAY_SHORT, FREQ_OPTIONS, PROFILES, isWeekend } from './src/data';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFonts } from 'expo-font';
 import { THEME, makeStyles } from './src/theme';
-import { computeCycleStart, getDateForCell, formatDate, getCurrentWeekAndDay, cellKey, taskKey, formatTimeDisplay } from './src/dateHelpers';
-import { load, save } from './src/storage';
-import { getTasksForCell, getProgress, getWeekProgress, buildClearedMoved } from './src/taskLogic';
+
+// Police par defaut pour tous les <Text> sans style fontFamily explicite
+// (couvre les petits textes inline qui ne passent pas par makeStyles)
+Text.defaultProps = Text.defaultProps || {};
+Text.defaultProps.style = [{ fontFamily: 'Lexend_400Regular' }, Text.defaultProps.style];
 
 let Notifications = null;
 try { Notifications = require('expo-notifications'); } catch (e) {}
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const WEEKS = 4;
+const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
+const DAY_SHORT = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+
+const FREQ_OPTIONS = [
+  { id: "once",   label: "Une fois" },
+  { id: "weekly", label: "Toutes les semaines" },
+  { id: "custom", label: "Jours specifiques" },
+];
+
+function isWeekend(day) {
+  return day === "Samedi" || day === "Dimanche";
+}
+
+// ─── Profiles ─────────────────────────────────────────────────────────────────
+
+const PROFILES = {
+  ETUDIANT: {
+    id: "ETUDIANT",
+    label: "Etudiant(e)",
+    emoji: "🎓",
+    description: "Cours, etudes, revisions et moments de detente.",
+    tasks: {
+      semaine: [
+        { id: "pdt_dej_e",   label: "Petit dejeuner",                 time: "08:00" },
+        { id: "repas_midi_e", label: "Repas midi",                    time: "12:30", isMeal: true },
+        { id: "etudes_e",    label: "Session d'etude / devoirs",       time: "17:00" },
+        { id: "repas_soir_e", label: "Repas soir",                    time: "19:00", isMeal: true },
+        { id: "lecture_e",   label: "Lecture ou activite calme",       time: "21:00" },
+        { id: "coucher_e",   label: "Routine du coucher",              time: "22:30" },
+      ],
+      weekend: [
+        { id: "pdt_dej_we_e",  label: "Petit dejeuner",               time: "09:30" },
+        { id: "sport_we_e",    label: "Sport ou activite physique",    time: "11:00" },
+        { id: "repas_midi_we_e", label: "Repas midi",                  time: "13:00", isMeal: true },
+        { id: "revisions_we_e", label: "Revisions",                   time: "15:00" },
+        { id: "repas_soir_we_e", label: "Repas soir",                 time: "19:00", isMeal: true },
+      ],
+    },
+  },
+
+  BUREAU: {
+    id: "BUREAU",
+    label: "Travailleur(se) de bureau",
+    emoji: "💼",
+    description: "Journees au bureau, pauses et routine du soir.",
+    tasks: {
+      semaine: [
+        { id: "pdt_dej_b",    label: "Petit dejeuner",                time: "07:30" },
+        { id: "repas_midi_b", label: "Repas midi",                    time: "12:30", isMeal: true },
+        { id: "pause_b",      label: "Pause deconnexion apres-midi",   time: "15:30" },
+        { id: "repas_soir_b", label: "Repas soir",                    time: "19:00", isMeal: true },
+        { id: "detente_b",    label: "Temps de detente",              time: "20:30" },
+        { id: "coucher_b",    label: "Routine du coucher",            time: "22:00" },
+      ],
+      weekend: [
+        { id: "pdt_dej_we_b",  label: "Petit dejeuner",              time: "09:00" },
+        { id: "repas_midi_we_b", label: "Repas midi",                 time: "12:30", isMeal: true },
+        { id: "temps_moi_b",   label: "Temps pour soi",              time: "15:00" },
+        { id: "repas_soir_we_b", label: "Repas soir",                time: "19:00", isMeal: true },
+      ],
+    },
+  },
+
+  FAMILLE: {
+    id: "FAMILLE",
+    label: "Responsable de famille",
+    emoji: "👨‍👩‍👧",
+    description: "Routine centree sur les enfants et la vie de famille.",
+    tasks: {
+      semaine: [
+        { id: "routine_matin_f", label: "Routine matin des enfants",         time: "07:00" },
+        { id: "pdt_dej_f",       label: "Petit dejeuner en famille",         time: "07:30", isMeal: true },
+        { id: "repas_midi_f",    label: "Repas midi",                        time: "12:00", isMeal: true },
+        { id: "enfants_f",       label: "Temps dedie aux enfants (Devoirs/Jeux)", time: "17:00" },
+        { id: "repas_soir_f",    label: "Repas soir en famille",             time: "18:30", isMeal: true },
+        { id: "dodo_f",          label: "Routine dodo des enfants",          time: "20:00" },
+        { id: "temps_moi_f",     label: "Temps pour soi",                   time: "21:00" },
+      ],
+      weekend: [
+        { id: "pdt_dej_we_f",    label: "Petit dejeuner en famille",        time: "08:30", isMeal: true },
+        { id: "activite_we_f",   label: "Activite en famille",              time: "10:30" },
+        { id: "repas_midi_we_f", label: "Repas midi",                       time: "12:30", isMeal: true },
+        { id: "repas_soir_we_f", label: "Repas soir",                       time: "18:30", isMeal: true },
+      ],
+    },
+  },
+
+  FEMME_ACTIVE: {
+    id: "FEMME_ACTIVE",
+    label: "Femme active",
+    emoji: "💪",
+    description: "Equilibre entre sante, bien-etre et vie professionnelle.",
+    tasks: {
+      semaine: [
+        { id: "sport_fa",       label: "Mettre le corps en mouvement (Sport/Yoga)", time: "07:00" },
+        { id: "pdt_dej_fa",     label: "Petit dejeuner",                            time: "08:00" },
+        { id: "repas_midi_fa",  label: "Repas midi",                                time: "12:30", isMeal: true },
+        { id: "repas_soir_fa",  label: "Repas soir",                                time: "19:00", isMeal: true },
+        { id: "skincare_fa",    label: "Skincare du soir",                          time: "21:00" },
+        { id: "lecture_fa",     label: "Lecture ou detente",                        time: "21:30" },
+      ],
+      weekend: [
+        { id: "sport_we_fa",    label: "Sport ou activite physique",                time: "09:30" },
+        { id: "pdt_dej_we_fa",  label: "Petit dejeuner",                            time: "10:30" },
+        { id: "repas_midi_we_fa", label: "Repas midi",                              time: "13:00", isMeal: true },
+        { id: "temps_moi_fa",   label: "Temps pour moi",                            time: "15:00" },
+        { id: "repas_soir_we_fa", label: "Repas soir",                              time: "19:00", isMeal: true },
+        { id: "skincare_we_fa", label: "Skincare et routine beaute",                time: "21:00" },
+      ],
+    },
+  },
+
+  RESET: {
+    id: "RESET",
+    label: "Retour aux bases",
+    emoji: "🌀",
+    description: "Le minimum essentiel pour prendre soin de toi, sans pression.",
+    tasks: {
+      semaine: [
+        { id: "hydra_r",      label: "S'hydrater (un grand verre d'eau)", time: "08:00" },
+        { id: "repas_midi_r", label: "Un repas nourrissant (Midi)",        time: "12:00", isMeal: true },
+        { id: "air_r",        label: "Prendre l'air (5 minutes)",          time: "14:00" },
+        { id: "micro_r",      label: "Une micro-action (ranger un objet)", time: "16:00" },
+        { id: "repas_soir_r", label: "Un repas nourrissant (Soir)",        time: "19:00", isMeal: true },
+        { id: "coucher_r",    label: "Routine du coucher (Hygiene & dodo)", time: "21:30" },
+      ],
+      weekend: [
+        { id: "hydra_we_r",      label: "S'hydrater",                          time: "09:00" },
+        { id: "repas_midi_we_r", label: "Un repas plaisir (Midi)",             time: "12:30", isMeal: true },
+        { id: "douche_we_r",     label: "Prendre une douche",                  time: "14:00" },
+        { id: "reconfort_we_r",  label: "Moment reconfortant (Musique/Lecture/Film)", time: "16:00" },
+        { id: "repas_soir_we_r", label: "Un repas nourrissant (Soir)",         time: "19:00", isMeal: true },
+      ],
+    },
+  },
+
+  VIERGE: {
+    id: "VIERGE",
+    label: "Je veux un planning vierge",
+    emoji: "📄",
+    description: "Aucune tache pre-remplie. Tu construis ton propre planning.",
+    tasks: {
+      semaine: [],
+      weekend: [],
+    },
+  },
+};
+
+function getProfileTasks(profileId, day) {
+  var profile = PROFILES[profileId] || PROFILES.VIERGE;
+  var key = isWeekend(day) ? "weekend" : "semaine";
+  var list = (profile.tasks && profile.tasks[key]) || [];
+  return list.map(function(t) { return Object.assign({}, t); });
+}
+
+function getAllProfileTaskIds(profileId) {
+  var profile = PROFILES[profileId] || PROFILES.VIERGE;
+  var ids = {};
+  Object.keys(profile.tasks || {}).forEach(function(key) {
+    (profile.tasks[key] || []).forEach(function(t) { ids[t.id] = true; });
+  });
+  return ids;
+}
+
+// ─── Storage ────────────────────────────────────────────────────────────────
+
+async function load(key, fallback) {
+  try {
+    var v = await AsyncStorage.getItem(key);
+    return v !== null ? JSON.parse(v) : fallback;
+  } catch (e) { return fallback; }
+}
+
+async function save(key, value) {
+  try { await AsyncStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+}
+
+// ─── Date helpers ─────────────────────────────────────────────────────────────
+
+function computeCycleStart() {
+  var today = new Date();
+  today.setHours(0, 0, 0, 0);
+  var monBased = (today.getDay() + 6) % 7;
+  var monday = new Date(today.getTime());
+  monday.setDate(today.getDate() - monBased);
+  return monday;
+}
+
+function getDateForCell(cycleStart, weekIndex, dayIndex) {
+  var d = new Date(cycleStart.getTime());
+  d.setDate(d.getDate() + weekIndex * 7 + dayIndex);
+  return d;
+}
+
+function formatDate(date) {
+  var months = ["janvier","fevrier","mars","avril","mai","juin",
+                "juillet","aout","septembre","octobre","novembre","decembre"];
+  return date.getDate() + " " + months[date.getMonth()];
+}
+
+function getCurrentWeekAndDay(cycleStart) {
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var start = new Date(cycleStart.getTime()); start.setHours(0, 0, 0, 0);
+  var diff = Math.floor((today.getTime() - start.getTime()) / 86400000);
+  if (diff < 0 || diff >= 28) return { week: 0, day: 0 };
+  return { week: Math.floor(diff / 7), day: diff % 7 };
+}
+
+function cellKey(w, d) { return "w" + w + "-" + d; }
+function taskKey(w, d, id) { return "w" + w + "-" + d + "-" + id; }
+
+function timeToMinutes(t) {
+  if (!t) return null;
+  var parts = t.split(":");
+  var h = parseInt(parts[0], 10), m = parseInt(parts[1], 10);
+  return (isNaN(h) || isNaN(m)) ? null : h * 60 + m;
+}
+
+function formatTimeDisplay(t) {
+  if (!t) return "";
+  var mins = timeToMinutes(t);
+  if (mins === null) return t;
+  var h = Math.floor(mins / 60), m = mins % 60;
+  return (h < 10 ? "0" : "") + h + "h" + (m < 10 ? "0" : "") + m;
+}
+
+// ─── Task logic ───────────────────────────────────────────────────────────────
+
+function getTasksForCell(profileId, w, day, state) {
+  var customs      = state.customs      || {};
+  var moved        = state.moved        || {};
+  var taskOverrides= state.taskOverrides|| {};
+  var taskTimes    = state.taskTimes    || {};
+  var important    = state.important    || {};
+
+  // ── Base tasks from profile ──────────────────────────────────────────────
+  var base = getProfileTasks(profileId, day).map(function(t) {
+    var effectiveLabel = taskOverrides["override-" + t.id] || t.label;
+    var effectiveTime  = taskTimes["base-" + t.id] || t.time;
+    return Object.assign({}, t, { label: effectiveLabel, time: effectiveTime });
+  });
+
+  var ck       = cellKey(w, day);
+  var movedArr = moved[ck] || [];
+
+  // Strings that are NOT skip- markers are hidden base task ids
+  var removedIds      = movedArr.filter(function(x) { return typeof x === "string" && x.indexOf("skip-") !== 0; });
+  // skip-<id> means: hide this custom task occurrence only today
+  var skippedCustomIds= movedArr.filter(function(x) { return typeof x === "string" && x.indexOf("skip-") === 0; }).map(function(x) { return x.slice(5); });
+  // Objects are tasks moved IN from another day
+  var movedIn         = movedArr.filter(function(x) { return typeof x === "object" && x !== null; });
+
+  var filtered = base.filter(function(t) { return removedIds.indexOf(t.id) === -1; });
+
+  // ── Custom tasks ──────────────────────────────────────────────────────────
+  var customArr = [];
+  Object.keys(customs).forEach(function(key) {
+    (customs[key] || []).forEach(function(task) {
+      if (skippedCustomIds.indexOf(task.id) !== -1) return;
+      var perCellLbl   = taskOverrides[ck + "-lbl-" + task.id];
+      var effectiveLabel = perCellLbl || task.label;
+      var effectiveTime  = taskTimes["custom-" + task.id] || task.time;
+      var enriched = Object.assign({}, task, {
+        label: effectiveLabel, time: effectiveTime,
+        _custom: true, _sourceKey: key,
+      });
+      if (task.freq === "once" && key === ck) {
+        customArr.push(enriched);
+      } else if (task.freq === "weekly") {
+        var sourceDay = key.split("-").slice(1).join("-");
+        if (sourceDay === day) customArr.push(enriched);
+      } else if (task.freq === "custom" && (task.freqDays || []).indexOf(day) !== -1) {
+        customArr.push(enriched);
+      }
+    });
+  });
+
+  var all = filtered
+    .concat(movedIn.map(function(t) { return Object.assign({}, t, { _movedIn: true }); }))
+    .concat(customArr)
+    .map(function(t) { return Object.assign({}, t, { important: !!important[t.id] }); });
+
+  // Sort by time if present
+  all.sort(function(a, b) {
+    if (!a.time && !b.time) return 0;
+    if (!a.time) return 1;
+    if (!b.time) return -1;
+    return a.time.localeCompare(b.time);
+  });
+
+  return all;
+}
+
+function getProgress(profileId, w, day, state) {
+  var tasks = getTasksForCell(profileId, w, day, state);
+  var done  = tasks.filter(function(t) { return !!state.checked[taskKey(w, day, t.id)]; }).length;
+  return { done: done, total: tasks.length };
+}
+
+function getWeekProgress(profileId, w, state) {
+  return DAYS.reduce(function(acc, day) {
+    var p = getProgress(profileId, w, day, state);
+    return { done: acc.done + p.done, total: acc.total + p.total };
+  }, { done: 0, total: 0 });
+}
+
+function buildClearedMoved(profileId, moved) {
+  var allIds = getAllProfileTaskIds(profileId);
+  var next   = Object.assign({}, moved);
+  for (var w = 0; w < WEEKS; w++) {
+    DAYS.forEach(function(day) {
+      var k   = cellKey(w, day);
+      var cur = next[k] || [];
+      var toHide = Object.keys(allIds).filter(function(id) { return cur.indexOf(id) === -1; });
+      next[k] = cur.concat(toHide);
+    });
+  }
+  return next;
+}
+
+// ─── Theme / styles (voir src/theme.js) ─────────────────────────────────────
+
 const T = THEME;
+const s = makeStyles(T);  // Calculated once, outside component
 const DEFAULT_REMINDER = {
   enabled: false,
   presetIds: [],
@@ -33,7 +361,15 @@ const REMINDER_PRESETS = [
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const s = makeStyles(T);
+  // Chargement de la police Lexend depuis des fichiers locaux
+  // (contourne le bug de resolution Snack avec @expo-google-fonts/lexend)
+  const [fontsLoaded] = useFonts({
+    Lexend_400Regular: require('./assets/fonts/Lexend-Regular.ttf'),
+    Lexend_500Medium: require('./assets/fonts/Lexend-Medium.ttf'),
+    Lexend_600SemiBold: require('./assets/fonts/Lexend-SemiBold.ttf'),
+    Lexend_700Bold: require('./assets/fonts/Lexend-Bold.ttf'),
+    Lexend_800ExtraBold: require('./assets/fonts/Lexend-ExtraBold.ttf'),
+  });
 
   // Core state
   const [ready,      setReady]      = useState(false);
@@ -322,7 +658,7 @@ export default function App() {
 
   // ─── Render guard ──────────────────────────────────────────────────────────
 
-  if (!ready || !cycleStart) {
+  if (!ready || !cycleStart || !fontsLoaded) {
     return (
       <SafeAreaView style={{ flex:1, backgroundColor:T.bg, justifyContent:"center", alignItems:"center" }}>
         <Text style={{ color:T.muted, fontSize:16 }}>Chargement...</Text>
@@ -351,7 +687,7 @@ export default function App() {
                   style={{ backgroundColor: nameInput.trim() ? T.accent : T.border, padding:14, borderRadius:12, alignItems:"center", opacity: nameInput.trim() ? 1 : 0.5 }}
                   onPress={function(){ if(nameInput.trim()) setWelcomeStep(2); }}
                   disabled={!nameInput.trim()}>
-                  <Text style={{ color:"#fff", fontWeight:"700", fontSize:14 }}>Continuer →</Text>
+                  <Text style={{ color:"#fff", fontFamily:"Lexend_700Bold", fontSize:14 }}>Continuer →</Text>
                 </TouchableOpacity>
               </>
             ) : (
@@ -378,7 +714,7 @@ export default function App() {
                 <TouchableOpacity
                   style={{ backgroundColor: welcomeProfileSel ? T.accent : T.border, padding:14, borderRadius:12, alignItems:"center", marginTop:14, opacity: welcomeProfileSel ? 1 : 0.5 }}
                   onPress={finishWelcome} disabled={!welcomeProfileSel}>
-                  <Text style={{ color:"#fff", fontWeight:"700", fontSize:14 }}>Commencer ✓</Text>
+                  <Text style={{ color:"#fff", fontFamily:"Lexend_700Bold", fontSize:14 }}>Commencer ✓</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -386,96 +722,98 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* ── Reset Modal step 1 — confirm ── */}
-      <Modal visible={showReset && resetStep===1} transparent animationType="fade">
+      {/* ── Reset Modal (un seul Modal natif pour toutes les étapes — évite le bug de repaint Android au changement d'étape) ── */}
+      <Modal visible={showReset} transparent animationType="fade">
         <View style={s.overlay}><View style={s.modal}>
-          <Text style={s.modalEmoji}>🔄</Text>
-          <Text style={s.modalTitle}>Nouveau cycle ?</Text>
-          <Text style={s.modalDesc}>Le cycle commencera a partir d'aujourd'hui ({formatDate(new Date())}).{"\n"}Les coches et repas seront remis a zero.</Text>
-          <View style={s.row}>
-            <TouchableOpacity style={s.btnCancel} onPress={function(){ setShowReset(false); setResetStep(1); }}>
-              <Text style={s.btnCancelTxt}>Annuler</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[s.btnPrimary,{backgroundColor:T.accent,flex:1}]} onPress={function(){ setResetStep(2); }}>
-              <Text style={s.btnPrimaryTxt}>Continuer</Text>
-            </TouchableOpacity>
-          </View>
-        </View></View>
-      </Modal>
-
-      {/* ── Reset Modal step 2 — changer de profil ? ── */}
-      <Modal visible={showReset && resetStep===2} transparent animationType="fade">
-        <View style={s.overlay}><View style={s.modal}>
-          <Text style={s.modalEmoji}>👤</Text>
-          <Text style={s.modalTitle}>Changer de profil ?</Text>
-          <TouchableOpacity style={s.moveBtn} onPress={function(){ setPendingProfileId(null); setResetStep(3); }}>
-            <Text style={s.moveBtnDay}>Garder mon profil actuel</Text>
-            <Text style={{ color:T.muted }}>→</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.moveBtn} onPress={function(){ setPendingProfileId("__pick__"); setResetStep(25); }}>
-            <Text style={s.moveBtnDay}>Changer de profil</Text>
-            <Text style={{ color:T.muted }}>→</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[s.btnCancel,{marginTop:8}]} onPress={function(){ setShowReset(false); setResetStep(1); }}>
-            <Text style={s.btnCancelTxt}>Annuler</Text>
-          </TouchableOpacity>
-        </View></View>
-      </Modal>
-
-      {/* ── Reset Modal step 2.5 — pick new profile ── */}
-      <Modal visible={showReset && resetStep===25} transparent animationType="fade">
-        <View style={s.overlay}><View style={s.modal}>
-          <Text style={s.modalTitle}>Choisir un nouveau profil</Text>
-          <ScrollView style={{ maxHeight: 360 }}>
-            {Object.keys(PROFILES).map(function(id) {
-              var p = PROFILES[id]; var active = (pendingProfileId===id);
-              return (
-                <TouchableOpacity key={id} onPress={function(){ setPendingProfileId(id); }}
-                  style={[s.profileCard, active && s.profileCardActive]}>
-                  <Text style={s.profileEmoji}>{p.emoji}</Text>
-                  <View style={{ flex:1 }}>
-                    <Text style={s.profileLabel}>{p.label}</Text>
-                  </View>
-                  {active ? <Text style={{ color:T.accent }}>✓</Text> : null}
+          {resetStep===1 ? (
+            <>
+              <Text style={s.modalEmoji}>🔄</Text>
+              <Text style={s.modalTitle}>Nouveau cycle ?</Text>
+              <Text style={s.modalDesc}>Le cycle commencera a partir d'aujourd'hui ({formatDate(new Date())}).{"\n"}Les coches et repas seront remis a zero.</Text>
+              <View style={s.row}>
+                <TouchableOpacity style={s.btnCancel} onPress={function(){ setShowReset(false); setResetStep(1); }}>
+                  <Text style={s.btnCancelTxt}>Annuler</Text>
                 </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-          <View style={[s.row,{marginTop:12}]}>
-            <TouchableOpacity style={s.btnCancel} onPress={function(){ setResetStep(2); }}>
-              <Text style={s.btnCancelTxt}>Retour</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[s.btnPrimary,{backgroundColor:T.accent,flex:1,opacity:pendingProfileId&&pendingProfileId!=="__pick__"?1:0.4}]}
-              onPress={function(){ if(pendingProfileId&&pendingProfileId!=="__pick__") setResetStep(3); }}>
-              <Text style={s.btnPrimaryTxt}>Suivant</Text>
-            </TouchableOpacity>
-          </View>
-        </View></View>
-      </Modal>
+                <TouchableOpacity style={[s.btnPrimary,{backgroundColor:T.accent,flex:1}]} onPress={function(){ setResetStep(2); }}>
+                  <Text style={s.btnPrimaryTxt}>Continuer</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : null}
 
-      {/* ── Reset Modal step 3 — carry customs ── */}
-      <Modal visible={showReset && resetStep===3} transparent animationType="fade">
-        <View style={s.overlay}><View style={s.modal}>
-          <Text style={s.modalEmoji}>📋</Text>
-          <Text style={s.modalTitle}>Importer mes taches personnalisees ?</Text>
-          <Text style={s.modalDesc}>Les taches que tu as creees toi-meme seront ajoutees a ton nouveau cycle.{"\n\n"}Note : les modifications des taches generiques seront effacees.</Text>
-          <TouchableOpacity style={s.carryRow} onPress={function(){ setCarryCustoms(!carryCustoms); }}>
-            <View style={[s.circle,{borderColor:T.accent},carryCustoms&&{backgroundColor:T.check,borderColor:T.check}]}>
-              {carryCustoms?<Text style={{color:"#fff",fontSize:11}}>✓</Text>:null}
-            </View>
-            <View style={{flex:1}}>
-              <Text style={s.carryTitle}>Importer mes taches personnalisees</Text>
-              <Text style={s.carrySub}>Les taches generiques du profil seront remises a zero</Text>
-            </View>
-          </TouchableOpacity>
-          <View style={s.row}>
-            <TouchableOpacity style={s.btnCancel} onPress={function(){ setResetStep(2); }}>
-              <Text style={s.btnCancelTxt}>Retour</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[s.btnPrimary,{backgroundColor:T.accent,flex:1}]} onPress={handleReset}>
-              <Text style={s.btnPrimaryTxt}>Confirmer</Text>
-            </TouchableOpacity>
-          </View>
+          {resetStep===2 ? (
+            <>
+              <Text style={s.modalEmoji}>👤</Text>
+              <Text style={s.modalTitle}>Changer de profil ?</Text>
+              <Text style={s.modalDesc}>Ton profil actuel est "{(PROFILES[effectiveProfile]||PROFILES.VIERGE).label}".</Text>
+              <TouchableOpacity style={s.moveBtn} onPress={function(){ setPendingProfileId(null); setResetStep(3); }}>
+                <Text style={s.moveBtnDay}>Garder mon profil actuel</Text>
+                <Text style={{ color:T.muted }}>→</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.moveBtn} onPress={function(){ setPendingProfileId("__pick__"); setResetStep(25); }}>
+                <Text style={s.moveBtnDay}>Changer de profil</Text>
+                <Text style={{ color:T.muted }}>→</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.btnCancel,{marginTop:8}]} onPress={function(){ setShowReset(false); setResetStep(1); }}>
+                <Text style={s.btnCancelTxt}>Annuler</Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
+
+          {resetStep===25 ? (
+            <>
+              <Text style={s.modalTitle}>Choisir un nouveau profil</Text>
+              <ScrollView style={{ maxHeight: 360 }}>
+                {Object.keys(PROFILES).map(function(id) {
+                  var p = PROFILES[id]; var active = (pendingProfileId===id);
+                  return (
+                    <TouchableOpacity key={id} onPress={function(){ setPendingProfileId(id); }}
+                      style={[s.profileCard, active && s.profileCardActive]}>
+                      <Text style={s.profileEmoji}>{p.emoji}</Text>
+                      <View style={{ flex:1 }}>
+                        <Text style={s.profileLabel}>{p.label}</Text>
+                      </View>
+                      {active ? <Text style={{ color:T.accent }}>✓</Text> : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+              <View style={[s.row,{marginTop:12}]}>
+                <TouchableOpacity style={s.btnCancel} onPress={function(){ setResetStep(2); }}>
+                  <Text style={s.btnCancelTxt}>Retour</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.btnPrimary,{backgroundColor:T.accent,flex:1,opacity:pendingProfileId&&pendingProfileId!=="__pick__"?1:0.4}]}
+                  onPress={function(){ if(pendingProfileId&&pendingProfileId!=="__pick__") setResetStep(3); }}>
+                  <Text style={s.btnPrimaryTxt}>Suivant</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : null}
+
+          {resetStep===3 ? (
+            <>
+              <Text style={s.modalEmoji}>📋</Text>
+              <Text style={s.modalTitle}>Importer mes taches personnalisees ?</Text>
+              <Text style={s.modalDesc}>Les taches que tu as creees toi-meme seront ajoutees a ton nouveau cycle.{"\n\n"}Note : les modifications des taches generiques seront effacees.</Text>
+              <TouchableOpacity style={s.carryRow} onPress={function(){ setCarryCustoms(!carryCustoms); }}>
+                <View style={[s.circle,{borderColor:T.accent},carryCustoms&&{backgroundColor:T.check,borderColor:T.check}]}>
+                  {carryCustoms?<Text style={{color:"#fff",fontSize:11}}>✓</Text>:null}
+                </View>
+                <View style={{flex:1}}>
+                  <Text style={s.carryTitle}>Importer mes taches personnalisees</Text>
+                  <Text style={s.carrySub}>Les taches generiques du profil seront remises a zero</Text>
+                </View>
+              </TouchableOpacity>
+              <View style={s.row}>
+                <TouchableOpacity style={s.btnCancel} onPress={function(){ setResetStep(2); }}>
+                  <Text style={s.btnCancelTxt}>Retour</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.btnPrimary,{backgroundColor:T.accent,flex:1}]} onPress={handleReset}>
+                  <Text style={s.btnPrimaryTxt}>Confirmer</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : null}
         </View></View>
       </Modal>
 
@@ -746,7 +1084,7 @@ export default function App() {
             <Text style={s.dangerBtnTxt}>Vider</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[s.iconBtn,{borderColor:T.accent+"44",backgroundColor:"#EBF3FC"}]} onPress={function(){ setShowReset(true); setResetStep(1); }}>
-            <Text style={{fontSize:11,color:T.accent,fontWeight:"600"}}>Cycle</Text>
+            <Text style={{fontSize:11,color:T.accent,fontFamily:"Lexend_600SemiBold"}}>Nouveau cycle</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -754,15 +1092,11 @@ export default function App() {
       {/* ── Week tabs ── */}
       <View style={s.weekRow}>
         {Array.from({length:WEEKS}).map(function(_,w){
-          var wp=getWeekProgress(effectiveProfile,w,state);
           var active=w===week;
-          var sd=getDateForCell(cycleStart,w,0);
           return (
             <TouchableOpacity key={w} onPress={function(){ setWeek(w); }}
               style={[s.weekTab,active&&{borderColor:T.accent,borderWidth:2,backgroundColor:"#EBF3FC"}]}>
-              <Text style={[s.weekTabTxt,active&&{color:T.accent,fontWeight:"700"}]}>Sem {w+1}</Text>
-              <Text style={s.weekTabDate}>{sd.getDate()}/{sd.getMonth()+1}</Text>
-              <Text style={s.weekTabProg}>{wp.done}/{wp.total}</Text>
+              <Text style={[s.weekTabTxt,active&&{color:T.accent,fontFamily:"Lexend_700Bold"}]}>Semaine {w+1}</Text>
             </TouchableOpacity>
           );
         })}
@@ -787,8 +1121,8 @@ export default function App() {
                 isToday&&!isActive&&{borderColor:T.gold,borderWidth:2},
                 allDone&&!isActive&&{backgroundColor:"#F0FFF4"}]}>
               <Text style={[s.dayTabTxt,isActive&&{color:"#fff"}]}>{DAY_SHORT[i]}</Text>
-              <Text style={[s.dayTabDate,isActive&&{color:"rgba(255,255,255,0.8)"}]}>{cd.getDate()}</Text>
-              <Text style={[s.dayTabProg,isActive&&{color:"rgba(255,255,255,0.8)"}]}>{allDone?"✓":(p.done+"/"+p.total)}</Text>
+              <Text style={[s.dayTabDate,isActive&&{color:"rgba(255,255,255,0.8)"}]}>{(cd.getDate()<10?"0":"")+cd.getDate()}/{(cd.getMonth()+1<10?"0":"")+(cd.getMonth()+1)}</Text>
+              {allDone?<Text style={[s.dayTabProg,isActive&&{color:"rgba(255,255,255,0.8)"}]}>✓</Text>:null}
             </TouchableOpacity>
           );
         })}
