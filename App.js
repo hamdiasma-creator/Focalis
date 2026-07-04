@@ -360,11 +360,11 @@ export default function App() {
   // Chargement de la police Lexend depuis des fichiers locaux
   // (contourne le bug de resolution Snack avec @expo-google-fonts/lexend)
   const [fontsLoaded] = useFonts({
-    Lexend_400Regular: require('./assets/font/Lexend-Regular.ttf'),
-    Lexend_500Medium: require('./assets/font/Lexend-Medium.ttf'),
-    Lexend_600SemiBold: require('./assets/font/Lexend-SemiBold.ttf'),
-    Lexend_700Bold: require('./assets/font/Lexend-Bold.ttf'),
-    Lexend_800ExtraBold: require('./assets/font/Lexend-ExtraBold.ttf'),
+    Lexend_400Regular: require('./assets/fonts/Lexend-Regular.ttf'),
+    Lexend_500Medium: require('./assets/fonts/Lexend-Medium.ttf'),
+    Lexend_600SemiBold: require('./assets/fonts/Lexend-SemiBold.ttf'),
+    Lexend_700Bold: require('./assets/fonts/Lexend-Bold.ttf'),
+    Lexend_800ExtraBold: require('./assets/fonts/Lexend-ExtraBold.ttf'),
   });
 
   // Core state
@@ -1228,4 +1228,3 @@ export default function App() {
     </SafeAreaView>
   );
 }
-
