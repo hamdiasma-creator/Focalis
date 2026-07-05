@@ -106,7 +106,7 @@ export function makeStyles(T) {
 
     // ── Done card ────────────────────────────────────────────────────────────
     doneCard: { backgroundColor:"#F0FFF4", borderWidth:1, borderColor:"#86EFAC", borderRadius:16, padding:20, alignItems:"center", marginBottom:16 },
-    doneTxt:  {, color:"#2F9E6E", marginBottom:4, fontSize:16 },
+    doneTxt:  { color:"#2F9E6E", marginBottom:4, fontSize:16 },
     doneSub:  { fontSize:13, color:T.muted },
 
     // ── Profile picker ───────────────────────────────────────────────────────
