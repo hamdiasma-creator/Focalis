@@ -1,75 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   Modal, SafeAreaView, StatusBar, Platform
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useFonts } from 'expo-font';
 import { THEME, makeStyles } from './src/theme';
 
-
-
-// ─── Attrapeur d'erreurs global (affiche le crash a l'ecran au lieu de planter silencieusement) ───
-
-if (typeof ErrorUtils !== 'undefined' && ErrorUtils.setGlobalHandler) {
-  var __defaultErrorHandler = ErrorUtils.getGlobalHandler ? ErrorUtils.getGlobalHandler() : null;
-  ErrorUtils.setGlobalHandler(function (error, isFatal) {
-    try {
-      AsyncStorage.setItem('__last_crash__', JSON.stringify({
-        message: (error && error.message) || String(error),
-        stack: (error && error.stack) || '',
-        isFatal: !!isFatal,
-        time: new Date().toISOString(),
-      }));
-    } catch (e) {}
-    if (__defaultErrorHandler) __defaultErrorHandler(error, isFatal);
-  });
-}
-
-class CrashCatcher extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { error: null, info: null };
-  }
-  static getDerivedStateFromError(error) {
-    return { error: error };
-  }
-  componentDidCatch(error, info) {
-    this.setState({ info: info });
-    try {
-      AsyncStorage.setItem('__last_crash__', JSON.stringify({
-        message: (error && error.message) || String(error),
-        stack: ((error && error.stack) || '') + '\n' + ((info && info.componentStack) || ''),
-        time: new Date().toISOString(),
-      }));
-    } catch (e) {}
-  }
-  render() {
-    if (this.state.error) {
-      return (
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-          <ScrollView contentContainerStyle={{ padding: 20 }}>
-            <Text style={{ color: '#DC2626', fontWeight: 'bold', fontSize: 18, marginBottom: 12 }}>
-              Erreur detectee (copie ce texte pour Claude) :
-            </Text>
-            <Text selectable style={{ color: '#000', fontSize: 14, marginBottom: 12 }}>
-              {String(this.state.error && this.state.error.message)}
-            </Text>
-            <Text selectable style={{ color: '#444', fontSize: 11 }}>
-              {String(this.state.error && this.state.error.stack)}
-            </Text>
-            {this.state.info ? (
-              <Text selectable style={{ color: '#888', fontSize: 11, marginTop: 12 }}>
-                {this.state.info.componentStack}
-              </Text>
-            ) : null}
-          </ScrollView>
-        </SafeAreaView>
-      );
-    }
-    return this.props.children;
-  }
-}
 
 let Notifications = null;
 try { Notifications = require('expo-notifications'); } catch (e) {}
@@ -419,17 +355,7 @@ const REMINDER_PRESETS = [
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
-function AppInner() {
-  // Chargement de la police Lexend depuis des fichiers locaux
-  // (contourne le bug de resolution Snack avec @expo-google-fonts/lexend)
-  const [fontsLoaded] = useFonts({
-    Lexend_400Regular: require('./assets/fonts/Lexend-Regular.ttf'),
-    Lexend_500Medium: require('./assets/fonts/Lexend-Medium.ttf'),
-    Lexend_600SemiBold: require('./assets/fonts/Lexend-SemiBold.ttf'),
-    Lexend_700Bold: require('./assets/fonts/Lexend-Bold.ttf'),
-    Lexend_800ExtraBold: require('./assets/fonts/Lexend-ExtraBold.ttf'),
-  });
-
+export default function App() {
   // Core state
   const [ready,      setReady]      = useState(false);
   const [cycleStart, setCycleStart] = useState(null);
@@ -717,7 +643,7 @@ function AppInner() {
 
   // ─── Render guard ──────────────────────────────────────────────────────────
 
-  if (!ready || !cycleStart || !fontsLoaded) {
+  if (!ready || !cycleStart) {
     return (
       <SafeAreaView style={{ flex:1, backgroundColor:T.bg, justifyContent:"center", alignItems:"center" }}>
         <Text style={{ color:T.muted, fontSize:16 }}>Chargement...</Text>
@@ -746,7 +672,7 @@ function AppInner() {
                   style={{ backgroundColor: nameInput.trim() ? T.accent : T.border, padding:14, borderRadius:12, alignItems:"center", opacity: nameInput.trim() ? 1 : 0.5 }}
                   onPress={function(){ if(nameInput.trim()) setWelcomeStep(2); }}
                   disabled={!nameInput.trim()}>
-                  <Text style={{ color:"#fff", fontFamily:"Lexend_700Bold", fontSize:14 }}>Continuer →</Text>
+                  <Text style={{ color:"#fff", fontSize:14 }}>Continuer →</Text>
                 </TouchableOpacity>
               </>
             ) : (
@@ -773,7 +699,7 @@ function AppInner() {
                 <TouchableOpacity
                   style={{ backgroundColor: welcomeProfileSel ? T.accent : T.border, padding:14, borderRadius:12, alignItems:"center", marginTop:14, opacity: welcomeProfileSel ? 1 : 0.5 }}
                   onPress={finishWelcome} disabled={!welcomeProfileSel}>
-                  <Text style={{ color:"#fff", fontFamily:"Lexend_700Bold", fontSize:14 }}>Commencer ✓</Text>
+                  <Text style={{ color:"#fff", fontSize:14 }}>Commencer ✓</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -1143,7 +1069,7 @@ function AppInner() {
             <Text style={s.dangerBtnTxt}>Vider</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[s.iconBtn,{borderColor:T.accent+"44",backgroundColor:"#EBF3FC"}]} onPress={function(){ setShowReset(true); setResetStep(1); }}>
-            <Text style={{fontSize:11,color:T.accent,fontFamily:"Lexend_600SemiBold"}}>Nouveau cycle</Text>
+            <Text style={{fontSize:11,color:T.accent}}>Nouveau cycle</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -1155,7 +1081,7 @@ function AppInner() {
           return (
             <TouchableOpacity key={w} onPress={function(){ setWeek(w); }}
               style={[s.weekTab,active&&{borderColor:T.accent,borderWidth:2,backgroundColor:"#EBF3FC"}]}>
-              <Text style={[s.weekTabTxt,active&&{color:T.accent,fontFamily:"Lexend_700Bold"}]}>Semaine {w+1}</Text>
+              <Text style={[s.weekTabTxt,active&&{color:T.accent}]}>Semaine {w+1}</Text>
             </TouchableOpacity>
           );
         })}
@@ -1196,7 +1122,7 @@ function AppInner() {
         </View>
         <View style={{alignItems:"flex-end"}}>
           <Text style={[s.dayHeaderPct,{color:pct===100?T.check:colors.accent}]}>{pct}%</Text>
-          <Text style={{fontSize:11,color:T.muted,fontFamily:"Lexend_400Regular"}}>{prog.done}/{prog.total} taches</Text>
+          <Text style={{fontSize:11,color:T.muted}}>{prog.done}/{prog.total} taches</Text>
         </View>
       </View>
 
@@ -1292,10 +1218,3 @@ function AppInner() {
   );
 }
 
-export default function App() {
-  return (
-    <CrashCatcher>
-      <AppInner />
-    </CrashCatcher>
-  );
-}
