@@ -4,11 +4,11 @@ import {
   Modal, SafeAreaView, StatusBar, Platform
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFonts } from 'expo-font';
 import { THEME, makeStyles } from './src/theme';
 
 
-let Notifications = null;
-try { Notifications = require('expo-notifications'); } catch (e) {}
+let Notifications = null; // DESACTIVE temporairement pour test diagnostic (crash suspecte)
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -356,6 +356,16 @@ const REMINDER_PRESETS = [
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
+  // Chargement de la police Lexend depuis des fichiers locaux
+  // (contourne le bug de resolution Snack avec @expo-google-fonts/lexend)
+  const [fontsLoaded] = useFonts({
+    Lexend_400Regular: require('./assets/fonts/Lexend-Regular.ttf'),
+    Lexend_500Medium: require('./assets/fonts/Lexend-Medium.ttf'),
+    Lexend_600SemiBold: require('./assets/fonts/Lexend-SemiBold.ttf'),
+    Lexend_700Bold: require('./assets/fonts/Lexend-Bold.ttf'),
+    Lexend_800ExtraBold: require('./assets/fonts/Lexend-ExtraBold.ttf'),
+  });
+
   // Core state
   const [ready,      setReady]      = useState(false);
   const [cycleStart, setCycleStart] = useState(null);
@@ -643,7 +653,7 @@ export default function App() {
 
   // ─── Render guard ──────────────────────────────────────────────────────────
 
-  if (!ready || !cycleStart) {
+  if (!ready || !cycleStart || !fontsLoaded) {
     return (
       <SafeAreaView style={{ flex:1, backgroundColor:T.bg, justifyContent:"center", alignItems:"center" }}>
         <Text style={{ color:T.muted, fontSize:16 }}>Chargement...</Text>
@@ -672,7 +682,7 @@ export default function App() {
                   style={{ backgroundColor: nameInput.trim() ? T.accent : T.border, padding:14, borderRadius:12, alignItems:"center", opacity: nameInput.trim() ? 1 : 0.5 }}
                   onPress={function(){ if(nameInput.trim()) setWelcomeStep(2); }}
                   disabled={!nameInput.trim()}>
-                  <Text style={{ color:"#fff", fontSize:14 }}>Continuer →</Text>
+                  <Text style={{ color:"#fff", fontFamily:"Lexend_700Bold", fontSize:14 }}>Continuer →</Text>
                 </TouchableOpacity>
               </>
             ) : (
@@ -699,7 +709,7 @@ export default function App() {
                 <TouchableOpacity
                   style={{ backgroundColor: welcomeProfileSel ? T.accent : T.border, padding:14, borderRadius:12, alignItems:"center", marginTop:14, opacity: welcomeProfileSel ? 1 : 0.5 }}
                   onPress={finishWelcome} disabled={!welcomeProfileSel}>
-                  <Text style={{ color:"#fff", fontSize:14 }}>Commencer ✓</Text>
+                  <Text style={{ color:"#fff", fontFamily:"Lexend_700Bold", fontSize:14 }}>Commencer ✓</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -1069,7 +1079,7 @@ export default function App() {
             <Text style={s.dangerBtnTxt}>Vider</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[s.iconBtn,{borderColor:T.accent+"44",backgroundColor:"#EBF3FC"}]} onPress={function(){ setShowReset(true); setResetStep(1); }}>
-            <Text style={{fontSize:11,color:T.accent}}>Nouveau cycle</Text>
+            <Text style={{fontSize:11,color:T.accent,fontFamily:"Lexend_600SemiBold"}}>Nouveau cycle</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -1081,7 +1091,7 @@ export default function App() {
           return (
             <TouchableOpacity key={w} onPress={function(){ setWeek(w); }}
               style={[s.weekTab,active&&{borderColor:T.accent,borderWidth:2,backgroundColor:"#EBF3FC"}]}>
-              <Text style={[s.weekTabTxt,active&&{color:T.accent}]}>Semaine {w+1}</Text>
+              <Text style={[s.weekTabTxt,active&&{color:T.accent,fontFamily:"Lexend_700Bold"}]}>Semaine {w+1}</Text>
             </TouchableOpacity>
           );
         })}
@@ -1122,7 +1132,7 @@ export default function App() {
         </View>
         <View style={{alignItems:"flex-end"}}>
           <Text style={[s.dayHeaderPct,{color:pct===100?T.check:colors.accent}]}>{pct}%</Text>
-          <Text style={{fontSize:11,color:T.muted}}>{prog.done}/{prog.total} taches</Text>
+          <Text style={{fontSize:11,color:T.muted,fontFamily:"Lexend_400Regular"}}>{prog.done}/{prog.total} taches</Text>
         </View>
       </View>
 
