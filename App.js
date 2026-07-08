@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   Modal, SafeAreaView, StatusBar, Platform
@@ -6,9 +6,77 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
 import { THEME, makeStyles } from './src/theme';
+import * as Sentry from '@sentry/react-native';
+
+Sentry.init({
+  dsn: 'https://7a71a421a2e1d3f3597087671b80d395@o4511699180257280.ingest.us.sentry.io/4511699182616576',
+  debug: false,
+  tracesSampleRate: 1.0,
+});
 
 
-let Notifications = null; // DESACTIVE temporairement pour test diagnostic (crash suspecte)
+
+// ─── Attrapeur d'erreurs (affiche le crash a l'ecran ET l'envoie a Sentry) ───
+
+if (typeof ErrorUtils !== 'undefined' && ErrorUtils.setGlobalHandler) {
+  var __defaultErrorHandler = ErrorUtils.getGlobalHandler ? ErrorUtils.getGlobalHandler() : null;
+  ErrorUtils.setGlobalHandler(function (error, isFatal) {
+    try { Sentry.captureException(error); } catch (e) {}
+    try {
+      AsyncStorage.setItem('__last_crash__', JSON.stringify({
+        message: (error && error.message) || String(error),
+        stack: (error && error.stack) || '',
+        isFatal: !!isFatal,
+        time: new Date().toISOString(),
+      }));
+    } catch (e) {}
+    if (__defaultErrorHandler) __defaultErrorHandler(error, isFatal);
+  });
+}
+
+class CrashCatcher extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null, info: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error: error };
+  }
+  componentDidCatch(error, info) {
+    this.setState({ info: info });
+    try { Sentry.captureException(error); } catch (e) {}
+    try {
+      AsyncStorage.setItem('__last_crash__', JSON.stringify({
+        message: (error && error.message) || String(error),
+        stack: ((error && error.stack) || '') + '\n' + ((info && info.componentStack) || ''),
+        time: new Date().toISOString(),
+      }));
+    } catch (e) {}
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+          <ScrollView contentContainerStyle={{ padding: 20 }}>
+            <Text style={{ color: '#DC2626', fontWeight: 'bold', fontSize: 18, marginBottom: 12 }}>
+              Erreur detectee (envoyee a Sentry) :
+            </Text>
+            <Text selectable style={{ color: '#000', fontSize: 14, marginBottom: 12 }}>
+              {String(this.state.error && this.state.error.message)}
+            </Text>
+            <Text selectable style={{ color: '#444', fontSize: 11 }}>
+              {String(this.state.error && this.state.error.stack)}
+            </Text>
+          </ScrollView>
+        </SafeAreaView>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+let Notifications = null;
+try { Notifications = require('expo-notifications'); } catch (e) {}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -355,7 +423,7 @@ const REMINDER_PRESETS = [
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
-export default function App() {
+function AppInner() {
   // Chargement de la police Lexend depuis des fichiers locaux
   // (contourne le bug de resolution Snack avec @expo-google-fonts/lexend)
   const [fontsLoaded] = useFonts({
@@ -1228,3 +1296,10 @@ export default function App() {
   );
 }
 
+export default Sentry.wrap(function App() {
+  return (
+    <CrashCatcher>
+      <AppInner />
+    </CrashCatcher>
+  );
+});
