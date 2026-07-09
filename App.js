@@ -481,6 +481,16 @@ function AppInner() {
   const [showReminders,     setShowReminders]     = useState(false);
   const [reminderSettings,  setReminderSettings]  = useState(DEFAULT_REMINDER);
 
+  // Listes persistantes (courses / voyage) — independantes du cycle, jamais reinitialisees
+  const [groceries,         setGroceries]         = useState([]);
+  const [travelItems,       setTravelItems]       = useState([]);
+  const [showGroceries,     setShowGroceries]     = useState(false);
+  const [showTravel,        setShowTravel]        = useState(false);
+  const [newGroceryText,    setNewGroceryText]    = useState("");
+  const [newTravelText,     setNewTravelText]     = useState("");
+  const [showClearGroceries,setShowClearGroceries]= useState(false);
+  const [showClearTravel,   setShowClearTravel]   = useState(false);
+
   // ─── Load ──────────────────────────────────────────────────────────────────
 
   useEffect(function () {
@@ -492,12 +502,14 @@ function AppInner() {
         load("userName", ""), load("profileId", null),
         load("taskOverrides", {}), load("taskTimes", {}), load("important", {}),
         load("cycleStartStr", null), load("reminderSettings", DEFAULT_REMINDER),
+        load("groceries", []), load("travelItems", []),
       ]).then(function (r) {
         try {
           setChecked(r[0]); setMeals(r[1]); setCustoms(r[2]); setMoved(r[3]);
           var savedName = r[4]; var savedProfile = r[5];
           setTaskOverrides(r[6]); setTaskTimes(r[7]); setImportant(r[8]);
           setReminderSettings(r[10] || DEFAULT_REMINDER);
+          setGroceries(r[11] || []); setTravelItems(r[12] || []);
 
           var effectiveStart = cs;
           if (r[9]) { var stored = new Date(r[9]); if (!isNaN(stored.getTime())) effectiveStart = stored; }
@@ -717,6 +729,59 @@ function AppInner() {
 
   async function updateReminderSettings(next) {
     setReminderSettings(next); await save("reminderSettings", next);
+  }
+
+  // ─── Listes persistantes (courses / voyage) ────────────────────────────────
+
+  async function addGroceryItem() {
+    if (!newGroceryText.trim()) return;
+    var item = { id: "g" + Date.now(), label: newGroceryText.trim(), checked: false };
+    var next = groceries.concat([item]);
+    setGroceries(next); await save("groceries", next);
+    setNewGroceryText("");
+  }
+
+  async function toggleGroceryItem(id) {
+    var next = groceries.map(function(it){ return it.id===id ? Object.assign({},it,{checked:!it.checked}) : it; });
+    setGroceries(next); await save("groceries", next);
+  }
+
+  async function deleteGroceryItem(id) {
+    var next = groceries.filter(function(it){ return it.id!==id; });
+    setGroceries(next); await save("groceries", next);
+  }
+
+  async function clearGroceries() {
+    setGroceries([]); await save("groceries", []); setShowClearGroceries(false);
+  }
+
+  async function addTravelItem() {
+    if (!newTravelText.trim()) return;
+    var item = { id: "t" + Date.now(), label: newTravelText.trim(), checked: false };
+    var next = travelItems.concat([item]);
+    setTravelItems(next); await save("travelItems", next);
+    setNewTravelText("");
+  }
+
+  async function toggleTravelItem(id) {
+    var next = travelItems.map(function(it){ return it.id===id ? Object.assign({},it,{checked:!it.checked}) : it; });
+    setTravelItems(next); await save("travelItems", next);
+  }
+
+  async function deleteTravelItem(id) {
+    var next = travelItems.filter(function(it){ return it.id!==id; });
+    setTravelItems(next); await save("travelItems", next);
+  }
+
+  async function clearTravel() {
+    setTravelItems([]); await save("travelItems", []); setShowClearTravel(false);
+  }
+
+  // Tri Keep-style : non coches d'abord (ordre d'ajout), coches ensuite en bas
+  function sortedList(items) {
+    var unchecked = items.filter(function(it){ return !it.checked; });
+    var checked   = items.filter(function(it){ return it.checked; });
+    return unchecked.concat(checked);
   }
 
   // ─── Render guard ──────────────────────────────────────────────────────────
@@ -1133,6 +1198,118 @@ function AppInner() {
         </View></View>
       </Modal>
 
+      {/* ── Liste de courses ── */}
+      <Modal visible={showGroceries} transparent animationType="slide">
+        <View style={s.overlayBottom}>
+          <View style={[s.modalBottom,{height:"85%"}]}>
+            <View style={{flexDirection:"row",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <Text style={s.modalTitle}>🛒 Liste de courses</Text>
+              <TouchableOpacity onPress={function(){ setShowGroceries(false); }}>
+                <Text style={{fontSize:20,color:T.muted}}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{flex:1}}>
+              {groceries.length===0?<Text style={{color:T.muted,textAlign:"center",marginTop:30}}>Liste vide</Text>:null}
+              {sortedList(groceries).map(function(item){
+                return (
+                  <View key={item.id} style={s.listItemRow}>
+                    <TouchableOpacity onPress={function(){ toggleGroceryItem(item.id); }} style={[s.circle,{borderColor:T.accent},item.checked&&{backgroundColor:T.check,borderColor:T.check}]}>
+                      {item.checked?<Text style={{color:"#fff",fontSize:11}}>✓</Text>:null}
+                    </TouchableOpacity>
+                    <Text style={[s.listItemLabel,item.checked&&s.listItemLabelDone]} onPress={function(){ toggleGroceryItem(item.id); }}>{item.label}</Text>
+                    <TouchableOpacity onPress={function(){ deleteGroceryItem(item.id); }}>
+                      <Text style={{color:T.danger,fontSize:14}}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </ScrollView>
+            <View style={s.listAddRow}>
+              <TextInput style={s.listInput} placeholder="Ajouter un article..." placeholderTextColor={T.muted}
+                value={newGroceryText} onChangeText={setNewGroceryText} onSubmitEditing={addGroceryItem} returnKeyType="done" />
+              <TouchableOpacity style={[s.listAddBtn,{backgroundColor:T.accent}]} onPress={addGroceryItem}>
+                <Text style={{color:"#fff",fontSize:20,fontFamily:"Lexend_700Bold"}}>+</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity style={[s.btnDanger,{marginTop:8}]} onPress={function(){ setShowClearGroceries(true); }}>
+              <Text style={s.btnDangerTxt}>Vider la liste</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showClearGroceries} transparent animationType="fade">
+        <View style={s.overlay}><View style={s.modal}>
+          <Text style={s.modalEmoji}>🗑️</Text>
+          <Text style={s.modalTitle}>Vider la liste de courses ?</Text>
+          <Text style={s.modalDesc}>Tous les articles seront supprimes definitivement.</Text>
+          <View style={s.row}>
+            <TouchableOpacity style={s.btnCancel} onPress={function(){ setShowClearGroceries(false); }}>
+              <Text style={s.btnCancelTxt}>Annuler</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.btnDanger} onPress={clearGroceries}>
+              <Text style={s.btnDangerTxt}>Vider</Text>
+            </TouchableOpacity>
+          </View>
+        </View></View>
+      </Modal>
+
+      {/* ── Liste de voyage ── */}
+      <Modal visible={showTravel} transparent animationType="slide">
+        <View style={s.overlayBottom}>
+          <View style={[s.modalBottom,{height:"85%"}]}>
+            <View style={{flexDirection:"row",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <Text style={s.modalTitle}>✈️ Liste de voyage</Text>
+              <TouchableOpacity onPress={function(){ setShowTravel(false); }}>
+                <Text style={{fontSize:20,color:T.muted}}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{flex:1}}>
+              {travelItems.length===0?<Text style={{color:T.muted,textAlign:"center",marginTop:30}}>Liste vide</Text>:null}
+              {sortedList(travelItems).map(function(item){
+                return (
+                  <View key={item.id} style={s.listItemRow}>
+                    <TouchableOpacity onPress={function(){ toggleTravelItem(item.id); }} style={[s.circle,{borderColor:T.accent},item.checked&&{backgroundColor:T.check,borderColor:T.check}]}>
+                      {item.checked?<Text style={{color:"#fff",fontSize:11}}>✓</Text>:null}
+                    </TouchableOpacity>
+                    <Text style={[s.listItemLabel,item.checked&&s.listItemLabelDone]} onPress={function(){ toggleTravelItem(item.id); }}>{item.label}</Text>
+                    <TouchableOpacity onPress={function(){ deleteTravelItem(item.id); }}>
+                      <Text style={{color:T.danger,fontSize:14}}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </ScrollView>
+            <View style={s.listAddRow}>
+              <TextInput style={s.listInput} placeholder="Ajouter un article..." placeholderTextColor={T.muted}
+                value={newTravelText} onChangeText={setNewTravelText} onSubmitEditing={addTravelItem} returnKeyType="done" />
+              <TouchableOpacity style={[s.listAddBtn,{backgroundColor:T.accent}]} onPress={addTravelItem}>
+                <Text style={{color:"#fff",fontSize:20,fontFamily:"Lexend_700Bold"}}>+</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity style={[s.btnDanger,{marginTop:8}]} onPress={function(){ setShowClearTravel(true); }}>
+              <Text style={s.btnDangerTxt}>Vider la liste</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showClearTravel} transparent animationType="fade">
+        <View style={s.overlay}><View style={s.modal}>
+          <Text style={s.modalEmoji}>🗑️</Text>
+          <Text style={s.modalTitle}>Vider la liste de voyage ?</Text>
+          <Text style={s.modalDesc}>Tous les articles seront supprimes definitivement.</Text>
+          <View style={s.row}>
+            <TouchableOpacity style={s.btnCancel} onPress={function(){ setShowClearTravel(false); }}>
+              <Text style={s.btnCancelTxt}>Annuler</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.btnDanger} onPress={clearTravel}>
+              <Text style={s.btnDangerTxt}>Vider</Text>
+            </TouchableOpacity>
+          </View>
+        </View></View>
+      </Modal>
+
       {/* ── Header ── */}
       <View style={s.header}>
         <View style={{flex:1}}>
@@ -1150,6 +1327,18 @@ function AppInner() {
             <Text style={{fontSize:11,color:T.accent,fontFamily:"Lexend_600SemiBold"}}>Nouveau cycle</Text>
           </TouchableOpacity>
         </View>
+      </View>
+
+      {/* ── Listes persistantes ── */}
+      <View style={s.listsRow}>
+        <TouchableOpacity style={s.listBtn} onPress={function(){ setShowGroceries(true); }}>
+          <Text style={s.listBtnEmoji}>🛒</Text>
+          <Text style={s.listBtnTxt}>Courses{groceries.filter(function(it){return !it.checked;}).length>0?" ("+groceries.filter(function(it){return !it.checked;}).length+")":""}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={s.listBtn} onPress={function(){ setShowTravel(true); }}>
+          <Text style={s.listBtnEmoji}>✈️</Text>
+          <Text style={s.listBtnTxt}>Voyage{travelItems.filter(function(it){return !it.checked;}).length>0?" ("+travelItems.filter(function(it){return !it.checked;}).length+")":""}</Text>
+        </TouchableOpacity>
       </View>
 
       {/* ── Week tabs ── */}
