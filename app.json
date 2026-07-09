@@ -1,4 +1,3 @@
-
 {
   "expo": {
     "name": "Focalis",
@@ -6,6 +5,9 @@
     "version": "1.0.0",
     "sdkVersion": "50.0.0",
     "orientation": "portrait",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "splash": {
       "backgroundColor": "#EEF4FB"
     },
@@ -17,7 +19,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "78b0199a-c63c-4109-8049-cd17a48be41b"
+        "projectId": "REMPLACER_PAR_TON_PROJECT_ID"
       }
     }
   }
