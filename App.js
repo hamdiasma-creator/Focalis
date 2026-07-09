@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { THEME, makeStyles } from './src/theme';
 import * as Sentry from '@sentry/react-native';
 
@@ -307,11 +308,30 @@ function formatTimeDisplay(t) {
   return (h < 10 ? "0" : "") + h + "h" + (m < 10 ? "0" : "") + m;
 }
 
+function timeStringToDate(timeStr) {
+  var d = new Date();
+  d.setSeconds(0); d.setMilliseconds(0);
+  if (timeStr) {
+    var parts = timeStr.split(":");
+    var h = parseInt(parts[0], 10), m = parseInt(parts[1], 10);
+    if (!isNaN(h) && !isNaN(m)) { d.setHours(h); d.setMinutes(m); }
+  }
+  return d;
+}
+
+function dateToTimeString(d) {
+  var h = d.getHours(), m = d.getMinutes();
+  return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m;
+}
+
 // ─── Task logic ───────────────────────────────────────────────────────────────
+
+function occKey(kind, id, w, day) { return "occ-" + kind + "-" + id + "-w" + w + "-" + day; }
 
 function getTasksForCell(profileId, w, day, state) {
   var customs      = state.customs      || {};
   var moved        = state.moved        || {};
+  var taskLocations= state.taskLocations|| {};
   var taskOverrides= state.taskOverrides|| {};
   var taskTimes    = state.taskTimes    || {};
   var important    = state.important    || {};
@@ -326,20 +346,25 @@ function getTasksForCell(profileId, w, day, state) {
   var ck       = cellKey(w, day);
   var movedArr = moved[ck] || [];
 
-  // Strings that are NOT skip- markers are hidden base task ids
+  // Strings that are NOT skip- markers are hidden base task ids (suppression via "Supprimer")
   var removedIds      = movedArr.filter(function(x) { return typeof x === "string" && x.indexOf("skip-") !== 0; });
   // skip-<id> means: hide this custom task occurrence only today
   var skippedCustomIds= movedArr.filter(function(x) { return typeof x === "string" && x.indexOf("skip-") === 0; }).map(function(x) { return x.slice(5); });
-  // Objects are tasks moved IN from another day
-  var movedIn         = movedArr.filter(function(x) { return typeof x === "object" && x !== null; });
 
-  var filtered = base.filter(function(t) { return removedIds.indexOf(t.id) === -1; });
+  // Une tache naturelle (base ou personnalisee) est cachee ici si elle a ete DEPLACEE ailleurs
+  // (source unique de verite : taskLocations, cle par occurrence d'origine)
+  var filtered = base.filter(function(t) {
+    if (removedIds.indexOf(t.id) !== -1) return false;
+    if (taskLocations[occKey("b", t.id, w, day)]) return false; // deplacee ailleurs
+    return true;
+  });
 
   // ── Custom tasks ──────────────────────────────────────────────────────────
   var customArr = [];
   Object.keys(customs).forEach(function(key) {
     (customs[key] || []).forEach(function(task) {
       if (skippedCustomIds.indexOf(task.id) !== -1) return;
+      if (taskLocations[occKey("c", task.id, w, day)]) return; // deplacee ailleurs
       var perCellLbl   = taskOverrides[ck + "-lbl-" + task.id];
       var effectiveLabel = perCellLbl || task.label;
       var effectiveTime  = taskTimes["custom-" + task.id] || task.time;
@@ -358,8 +383,17 @@ function getTasksForCell(profileId, w, day, state) {
     });
   });
 
+  // ── Taches deplacees VERS cette cellule (une seule entree par occurrence d'origine) ──
+  var movedInArr = [];
+  Object.keys(taskLocations).forEach(function(k) {
+    var loc = taskLocations[k];
+    if (loc.toWeek === w && loc.toDay === day) {
+      movedInArr.push(Object.assign({}, loc.task, { _movedIn: true, movedFrom: loc.movedFrom, _occKey: k }));
+    }
+  });
+
   var all = filtered
-    .concat(movedIn.map(function(t) { return Object.assign({}, t, { _movedIn: true }); }))
+    .concat(movedInArr)
     .concat(customArr)
     .map(function(t) { return Object.assign({}, t, { important: !!important[t.id] }); });
 
@@ -421,6 +455,25 @@ const REMINDER_PRESETS = [
   { id: "h20", label: "20h00", hour: 20, minute: 0 },
 ];
 
+// Messages de bienveillance — varies mais stables pour une journee donnee (pas de re-tirage a chaque render)
+const DONE_MESSAGES = [
+  "Tu as pris soin de toi aujourd'hui.",
+  "Chaque petite chose comptait, et tu les as faites.",
+  "Journee cochee. Repose-toi, tu l'as merite.",
+  "Regarde tout ce que tu as accompli.",
+  "Pas a pas, tu avances — et ca se voit.",
+];
+const EMPTY_DAY_MESSAGES = [
+  "Rien de prevu ici. Une pause, ca fait aussi partie du plan.",
+  "Journee libre. Ajoute seulement ce dont tu as vraiment besoin.",
+  "Pas de taches pour l'instant — c'est ok aussi.",
+];
+function pickByDate(list, date) {
+  var d = date || new Date();
+  var seed = d.getFullYear()*1000 + Math.floor((d - new Date(d.getFullYear(),0,0)) / 86400000);
+  return list[seed % list.length];
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 function AppInner() {
@@ -454,6 +507,7 @@ function AppInner() {
   const [taskOverrides, setTaskOverrides] = useState({});
   const [taskTimes,     setTaskTimes]     = useState({});
   const [important,     setImportant]     = useState({});
+  const [taskLocations, setTaskLocations] = useState({}); // source unique de verite pour les taches deplacees
 
   // Modals
   const [showReset,         setShowReset]         = useState(false);
@@ -467,13 +521,16 @@ function AppInner() {
   const [newFreq,           setNewFreq]           = useState("once");
   const [newDays,           setNewDays]           = useState([]);
   const [newTime,           setNewTime]           = useState("");
+  const [showNewTimePicker, setShowNewTimePicker]  = useState(false);
   const [newImportant,      setNewImportant]      = useState(false);
   const [moveMenu,          setMoveMenu]          = useState(null);
+  const [moveAmbiguous,     setMoveAmbiguous]     = useState(null); // { task, targetDayIdx, thisWeek, nextWeek }
   const [delMenu,           setDelMenu]           = useState(null);
   const [showDelRepeat,     setShowDelRepeat]     = useState(false);
   const [editMenu,          setEditMenu]          = useState(null);
   const [editLabel,         setEditLabel]         = useState("");
   const [editTime,          setEditTime]          = useState("");
+  const [showEditTimePicker,setShowEditTimePicker] = useState(false);
   const [editImportant,     setEditImportant]     = useState(false);
   const [showEditModal,     setShowEditModal]     = useState(false);
   const [showEditScope,     setShowEditScope]     = useState(false);
@@ -502,7 +559,7 @@ function AppInner() {
         load("userName", ""), load("profileId", null),
         load("taskOverrides", {}), load("taskTimes", {}), load("important", {}),
         load("cycleStartStr", null), load("reminderSettings", DEFAULT_REMINDER),
-        load("groceries", []), load("travelItems", []),
+        load("groceries", []), load("travelItems", []), load("taskLocations", {}),
       ]).then(function (r) {
         try {
           setChecked(r[0]); setMeals(r[1]); setCustoms(r[2]); setMoved(r[3]);
@@ -510,6 +567,7 @@ function AppInner() {
           setTaskOverrides(r[6]); setTaskTimes(r[7]); setImportant(r[8]);
           setReminderSettings(r[10] || DEFAULT_REMINDER);
           setGroceries(r[11] || []); setTravelItems(r[12] || []);
+          setTaskLocations(r[13] || {});
 
           var effectiveStart = cs;
           if (r[9]) { var stored = new Date(r[9]); if (!isNaN(stored.getTime())) effectiveStart = stored; }
@@ -593,7 +651,7 @@ function AppInner() {
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
   var effectiveProfile = profileId || "VIERGE";
-  var state = { checked, meals, customs, moved, taskOverrides, taskTimes, important };
+  var state = { checked, meals, customs, moved, taskOverrides, taskTimes, important, taskLocations };
 
   var currentDay = DAYS[dayIdx];
   var colors = isWeekend(currentDay)
@@ -604,6 +662,9 @@ function AppInner() {
   var prog    = getProgress(effectiveProfile, week, currentDay, state);
   var pct     = prog.total > 0 ? Math.round((prog.done / prog.total) * 100) : 0;
   var todayDate = getDateForCell(cycleStart || computeCycleStart(), week, dayIdx);
+  var todayWD  = getCurrentWeekAndDay(cycleStart || computeCycleStart());
+  var todayAbs = todayWD.week * 7 + todayWD.day;
+  var viewedAbs = week * 7 + dayIdx;
 
   // ─── Task actions ──────────────────────────────────────────────────────────
 
@@ -632,7 +693,16 @@ function AppInner() {
     setNewLabel(""); setNewMeal(false); setNewFreq("once"); setNewDays([]); setNewTime(""); setNewImportant(false); setShowAdd(false);
   }
 
-  async function deleteTask(taskId, isCustom, sourceKey, deleteAll) {
+  async function deleteTask(taskId, isCustom, sourceKey, deleteAll, movedOccKey) {
+    if (movedOccKey) {
+      // Tache actuellement affichee suite a un deplacement : on la cache partout,
+      // sans reactiver son emplacement d'origine (qui reste marque "deplacee").
+      var nextTL = Object.assign({}, taskLocations);
+      if (nextTL[movedOccKey]) nextTL[movedOccKey] = Object.assign({}, nextTL[movedOccKey], { toWeek: null, toDay: null });
+      setTaskLocations(nextTL); await save("taskLocations", nextTL);
+      setDelMenu(null); setShowDelRepeat(false);
+      return;
+    }
     var ck = cellKey(week, DAYS[dayIdx]);
     if (isCustom) {
       if (deleteAll) {
@@ -660,7 +730,7 @@ function AppInner() {
   function handleDeletePress(task) {
     var isCustom = !!task._custom;
     var isRepeat = isCustom && task.freq && task.freq !== "once";
-    setDelMenu({ taskId: task.id, label: task.label, isCustom, sourceKey: task._sourceKey || cellKey(week, DAYS[dayIdx]), isRepeat });
+    setDelMenu({ taskId: task.id, label: task.label, isCustom, sourceKey: task._sourceKey || cellKey(week, DAYS[dayIdx]), isRepeat, movedOccKey: task._occKey || null });
     if (isRepeat) setShowDelRepeat(true);
   }
 
@@ -695,20 +765,48 @@ function AppInner() {
     setShowEditScope(false); setPendingEdit(null);
   }
 
-  async function moveTask(task, targetDayIdx) {
-    var srcDay = DAYS[dayIdx]; var tgtDay = DAYS[targetDayIdx];
-    var srcCk = cellKey(week, srcDay); var tgtCk = cellKey(week, tgtDay);
-    var next = Object.assign({}, moved);
-    // Remove from source day
-    next[srcCk] = (next[srcCk]||[]).filter(function(x){ return x !== task.id; }).concat([task.id]);
-    // Add to target day
-    next[tgtCk] = (next[tgtCk]||[]).filter(function(x){ return typeof x !== "object" || x===null || x.id!==task.id; }).concat([Object.assign({},task,{movedFrom:srcDay})]);
-    setMoved(next); await save("mv", next); setMoveMenu(null);
+  // Deplace effectivement une tache vers (targetWeek, targetDayIdx).
+  // Reutilise la MEME entree si la tache etait deja deplacee (evite les doublons/copies).
+  async function commitMove(task, targetWeek, targetDayIdx) {
+    var srcDay = DAYS[dayIdx];
+    var key = task._occKey || occKey(task._custom ? "c" : "b", task.id, week, srcDay);
+    var snapshot = {
+      id: task.id, label: task.label, time: task.time, isMeal: !!task.isMeal,
+      freq: task.freq, freqDays: task.freqDays, _custom: !!task._custom,
+    };
+    var next = Object.assign({}, taskLocations);
+    next[key] = { toWeek: targetWeek, toDay: DAYS[targetDayIdx], movedFrom: srcDay, task: snapshot };
+    setTaskLocations(next); await save("taskLocations", next);
+    setMoveMenu(null); setMoveAmbiguous(null);
+  }
+
+  // Determine automatiquement la semaine cible, ou demande confirmation si ambigu.
+  function requestMove(task, targetDayIdx) {
+    var todayWD = getCurrentWeekAndDay(cycleStart);
+    var todayAbs = todayWD.week * 7 + todayWD.day;
+    var viewedAbs = week * 7 + dayIdx;
+    var candidateThisWeekAbs = week * 7 + targetDayIdx;
+
+    if (candidateThisWeekAbs < todayAbs) {
+      // Ce jour est deja passe cette semaine -> automatiquement la semaine prochaine
+      commitMove(task, Math.min(week + 1, WEEKS - 1), targetDayIdx);
+    } else if (candidateThisWeekAbs > viewedAbs) {
+      // Ce jour arrive apres le jour consulte -> automatiquement cette semaine, pas d'ambiguite
+      commitMove(task, week, targetDayIdx);
+    } else {
+      // Cas ambigu : entre aujourd'hui et le jour consulte -> on demande
+      setMoveAmbiguous({ task: task, targetDayIdx: targetDayIdx, thisWeek: week, nextWeek: Math.min(week + 1, WEEKS - 1) });
+    }
   }
 
   async function clearGenericTasks() {
     var next = buildClearedMoved(effectiveProfile, moved);
-    setMoved(next); await save("mv", next); setShowClearGeneric(false);
+    setMoved(next); await save("mv", next);
+    // Une tache "videe" ne doit garder ni son ancien emplacement deplace, ni son statut importante/heure modifiee
+    setTaskLocations({}); await save("taskLocations", {});
+    setImportant({}); await save("important", {});
+    setTaskTimes({}); await save("taskTimes", {});
+    setShowClearGeneric(false);
   }
 
   // ─── Reset / new cycle ─────────────────────────────────────────────────────
@@ -722,8 +820,14 @@ function AppInner() {
     var ini = getCurrentWeekAndDay(newStart);
     setChecked(newChecked); setMeals(newMeals); setMoved(newMoved); setCustoms(newCustoms);
     setTaskOverrides({}); setWeek(ini.week); setDayIdx(ini.day);
+    // Un nouveau cycle repart a zero : pas d'emplacements deplaces, pas d'importance heritee,
+    // pas d'heures modifiees d'un cycle precedent — meme pour les taches personnalisees importees.
+    setTaskLocations({}); setImportant({}); setTaskTimes({});
     setProfileId(newProfile); await save("profileId", newProfile);
-    await Promise.all([save("ac",newChecked),save("am",newMeals),save("mv",newMoved),save("cu",newCustoms),save("taskOverrides",{})]);
+    await Promise.all([
+      save("ac",newChecked), save("am",newMeals), save("mv",newMoved), save("cu",newCustoms),
+      save("taskOverrides",{}), save("taskLocations",{}), save("important",{}), save("taskTimes",{}),
+    ]);
     setShowReset(false); setResetStep(1); setPendingProfileId(null); setCarryCustoms(false);
   }
 
@@ -1044,8 +1148,30 @@ function AppInner() {
         <View style={s.overlayBottom}><View style={s.modalBottom}>
           <Text style={s.modalTitle}>Ajouter une tache</Text>
           <TextInput style={s.input} placeholder="Description..." placeholderTextColor={T.muted} value={newLabel} onChangeText={setNewLabel} />
-          <TextInput style={s.input} placeholder="Heure (ex: 08:30) — optionnel" placeholderTextColor={T.muted}
-            value={newTime} onChangeText={setNewTime} keyboardType="numbers-and-punctuation" />
+          <View style={{flexDirection:"row",gap:8,marginBottom:12}}>
+            <TouchableOpacity style={[s.input,{flex:1,marginBottom:0,justifyContent:"center"}]} onPress={function(){ setShowNewTimePicker(true); }}>
+              <Text style={{fontSize:14,fontFamily:"Lexend_400Regular",color:newTime?T.text:T.muted}}>
+                {newTime ? ("🕐 "+formatTimeDisplay(newTime)) : "Heure (optionnel)"}
+              </Text>
+            </TouchableOpacity>
+            {newTime ? (
+              <TouchableOpacity style={[s.actBtnRed,{justifyContent:"center"}]} onPress={function(){ setNewTime(""); }}>
+                <Text style={{color:T.danger,fontSize:12}}>Retirer</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          {showNewTimePicker ? (
+            <DateTimePicker
+              value={timeStringToDate(newTime)}
+              mode="time"
+              is24Hour={true}
+              display="default"
+              onChange={function(event, selectedDate){
+                setShowNewTimePicker(false);
+                if (event.type === "set" && selectedDate) setNewTime(dateToTimeString(selectedDate));
+              }}
+            />
+          ) : null}
           <TouchableOpacity style={s.checkRow} onPress={function(){ setNewMeal(!newMeal); }}>
             <View style={[s.circle,{borderColor:T.accent},newMeal&&{backgroundColor:T.check,borderColor:T.check}]}>
               {newMeal?<Text style={{color:"#fff",fontSize:11}}>✓</Text>:null}
@@ -1102,8 +1228,30 @@ function AppInner() {
         <View style={s.overlayBottom}><View style={s.modalBottom}>
           <Text style={s.modalTitle}>Modifier la tache</Text>
           <TextInput style={s.input} value={editLabel} onChangeText={setEditLabel} placeholderTextColor={T.muted} placeholder="Nouveau nom..." autoFocus />
-          <TextInput style={s.input} placeholder="Heure (ex: 08:30)" placeholderTextColor={T.muted}
-            value={editTime} onChangeText={setEditTime} keyboardType="numbers-and-punctuation" />
+          <View style={{flexDirection:"row",gap:8,marginBottom:12}}>
+            <TouchableOpacity style={[s.input,{flex:1,marginBottom:0,justifyContent:"center"}]} onPress={function(){ setShowEditTimePicker(true); }}>
+              <Text style={{fontSize:14,fontFamily:"Lexend_400Regular",color:editTime?T.text:T.muted}}>
+                {editTime ? ("🕐 "+formatTimeDisplay(editTime)) : "Heure (optionnel)"}
+              </Text>
+            </TouchableOpacity>
+            {editTime ? (
+              <TouchableOpacity style={[s.actBtnRed,{justifyContent:"center"}]} onPress={function(){ setEditTime(""); }}>
+                <Text style={{color:T.danger,fontSize:12}}>Retirer</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          {showEditTimePicker ? (
+            <DateTimePicker
+              value={timeStringToDate(editTime)}
+              mode="time"
+              is24Hour={true}
+              display="default"
+              onChange={function(event, selectedDate){
+                setShowEditTimePicker(false);
+                if (event.type === "set" && selectedDate) setEditTime(dateToTimeString(selectedDate));
+              }}
+            />
+          ) : null}
           <TouchableOpacity style={s.checkRow} onPress={function(){ setEditImportant(!editImportant); }}>
             <View style={[s.circle,{borderColor:T.important},editImportant&&{backgroundColor:T.important,borderColor:T.important}]}>
               {editImportant?<Text style={{color:"#fff",fontSize:11}}>!</Text>:null}
@@ -1150,14 +1298,42 @@ function AppInner() {
           {moveMenu?<Text style={s.modalDesc}>"{moveMenu.label}"</Text>:null}
           {DAYS.map(function(d,i){
             if(d===currentDay) return null;
+            var candidateThisWeekAbs = week*7+i;
+            var isAmbiguous = candidateThisWeekAbs >= todayAbs && candidateThisWeekAbs <= viewedAbs;
+            var previewWeek = candidateThisWeekAbs < todayAbs ? Math.min(week+1,WEEKS-1) : week;
+            var previewLabel = isAmbiguous ? "Cette semaine ou la prochaine ?" : formatDate(getDateForCell(cycleStart,previewWeek,i));
             return (
-              <TouchableOpacity key={d} style={s.moveBtn} onPress={function(){ moveTask(moveMenu.task,i); }}>
+              <TouchableOpacity key={d} style={s.moveBtn} onPress={function(){ requestMove(moveMenu.task,i); }}>
                 <Text style={s.moveBtnDay}>{d}</Text>
-                <Text style={s.moveBtnDate}>{formatDate(getDateForCell(cycleStart,week,i))}</Text>
+                <Text style={s.moveBtnDate}>{previewLabel}</Text>
               </TouchableOpacity>
             );
           })}
           <TouchableOpacity style={[s.btnCancel,{marginTop:8}]} onPress={function(){ setMoveMenu(null); }}>
+            <Text style={s.btnCancelTxt}>Annuler</Text>
+          </TouchableOpacity>
+        </View></View>
+      </Modal>
+
+      {/* ── Move Ambiguous Week Modal ── */}
+      <Modal visible={!!moveAmbiguous} transparent animationType="fade">
+        <View style={s.overlay}><View style={s.modal}>
+          <Text style={s.modalEmoji}>🤔</Text>
+          <Text style={s.modalTitle}>Quelle semaine ?</Text>
+          {moveAmbiguous?<Text style={s.modalDesc}>Deplacer vers {DAYS[moveAmbiguous.targetDayIdx]} — cette semaine ou la semaine prochaine ?</Text>:null}
+          <TouchableOpacity style={s.moveBtn} onPress={function(){ commitMove(moveAmbiguous.task, moveAmbiguous.thisWeek, moveAmbiguous.targetDayIdx); }}>
+            <View>
+              <Text style={s.moveBtnDay}>Cette semaine</Text>
+              {moveAmbiguous?<Text style={s.moveBtnDate}>{formatDate(getDateForCell(cycleStart,moveAmbiguous.thisWeek,moveAmbiguous.targetDayIdx))}</Text>:null}
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.moveBtn} onPress={function(){ commitMove(moveAmbiguous.task, moveAmbiguous.nextWeek, moveAmbiguous.targetDayIdx); }}>
+            <View>
+              <Text style={s.moveBtnDay}>Semaine prochaine</Text>
+              {moveAmbiguous?<Text style={s.moveBtnDate}>{formatDate(getDateForCell(cycleStart,moveAmbiguous.nextWeek,moveAmbiguous.targetDayIdx))}</Text>:null}
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity style={[s.btnCancel,{marginTop:8}]} onPress={function(){ setMoveAmbiguous(null); }}>
             <Text style={s.btnCancelTxt}>Annuler</Text>
           </TouchableOpacity>
         </View></View>
@@ -1169,10 +1345,10 @@ function AppInner() {
           <Text style={s.modalEmoji}>🗑️</Text>
           <Text style={s.modalTitle}>Supprimer cette tache ?</Text>
           {delMenu?<Text style={s.modalDesc}>"{delMenu.label}"</Text>:null}
-          <TouchableOpacity style={s.moveBtn} onPress={function(){ deleteTask(delMenu.taskId,delMenu.isCustom,delMenu.sourceKey,false); }}>
+          <TouchableOpacity style={s.moveBtn} onPress={function(){ deleteTask(delMenu.taskId,delMenu.isCustom,delMenu.sourceKey,false,delMenu.movedOccKey); }}>
             <Text style={s.moveBtnDay}>Seulement aujourd'hui</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={s.moveBtn} onPress={function(){ deleteTask(delMenu.taskId,delMenu.isCustom,delMenu.sourceKey,true); }}>
+          <TouchableOpacity style={s.moveBtn} onPress={function(){ deleteTask(delMenu.taskId,delMenu.isCustom,delMenu.sourceKey,true,delMenu.movedOccKey); }}>
             <Text style={s.moveBtnDay}>Toutes les occurrences</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[s.btnCancel,{marginTop:8}]} onPress={function(){ setShowDelRepeat(false); setDelMenu(null); }}>
@@ -1191,7 +1367,7 @@ function AppInner() {
             <TouchableOpacity style={s.btnCancel} onPress={function(){ setDelMenu(null); }}>
               <Text style={s.btnCancelTxt}>Annuler</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={s.btnDanger} onPress={function(){ deleteTask(delMenu.taskId,delMenu.isCustom,delMenu.sourceKey,false); }}>
+            <TouchableOpacity style={s.btnDanger} onPress={function(){ deleteTask(delMenu.taskId,delMenu.isCustom,delMenu.sourceKey,false,delMenu.movedOccKey); }}>
               <Text style={s.btnDangerTxt}>Supprimer</Text>
             </TouchableOpacity>
           </View>
@@ -1231,7 +1407,7 @@ function AppInner() {
                 <Text style={{color:"#fff",fontSize:20,fontFamily:"Lexend_700Bold"}}>+</Text>
               </TouchableOpacity>
             </View>
-            <TouchableOpacity style={[s.btnDanger,{marginTop:8}]} onPress={function(){ setShowClearGroceries(true); }}>
+            <TouchableOpacity style={[s.btnDanger,{marginTop:8,flex:0}]} onPress={function(){ setShowClearGroceries(true); }}>
               <Text style={s.btnDangerTxt}>Vider la liste</Text>
             </TouchableOpacity>
           </View>
@@ -1287,7 +1463,7 @@ function AppInner() {
                 <Text style={{color:"#fff",fontSize:20,fontFamily:"Lexend_700Bold"}}>+</Text>
               </TouchableOpacity>
             </View>
-            <TouchableOpacity style={[s.btnDanger,{marginTop:8}]} onPress={function(){ setShowClearTravel(true); }}>
+            <TouchableOpacity style={[s.btnDanger,{marginTop:8,flex:0}]} onPress={function(){ setShowClearTravel(true); }}>
               <Text style={s.btnDangerTxt}>Vider la liste</Text>
             </TouchableOpacity>
           </View>
@@ -1469,6 +1645,13 @@ function AppInner() {
           );
         })}
 
+        {tasks.length===0?(
+          <View style={[s.doneCard,{backgroundColor:T.bg,borderColor:T.border}]}>
+            <Text style={{fontSize:24,marginBottom:6}}>🌤️</Text>
+            <Text style={[s.doneSub,{textAlign:"center"}]}>{pickByDate(EMPTY_DAY_MESSAGES, todayDate)}</Text>
+          </View>
+        ):null}
+
         <TouchableOpacity style={[s.addBtn,{borderColor:colors.accent}]} onPress={function(){ setShowAdd(true); }}>
           <Text style={[s.addBtnTxt,{color:colors.accent}]}>+ Ajouter une tache</Text>
         </TouchableOpacity>
@@ -1477,7 +1660,7 @@ function AppInner() {
           <View style={s.doneCard}>
             <Text style={{fontSize:28,marginBottom:6}}>🌟</Text>
             <Text style={s.doneTxt}>Journee complete !</Text>
-            <Text style={s.doneSub}>{userName?userName+", bravo pour aujourd'hui !":"Bravo pour aujourd'hui !"}</Text>
+            <Text style={s.doneSub}>{userName?userName+", "+pickByDate(DONE_MESSAGES, todayDate).charAt(0).toLowerCase()+pickByDate(DONE_MESSAGES, todayDate).slice(1):pickByDate(DONE_MESSAGES, todayDate)}</Text>
           </View>
         ):null}
       </ScrollView>
@@ -1492,3 +1675,4 @@ export default Sentry.wrap(function App() {
     </CrashCatcher>
   );
 });
+
