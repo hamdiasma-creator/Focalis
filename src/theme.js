@@ -111,8 +111,8 @@ export function makeStyles(T) {
     cardMeta:     { fontSize:11, fontFamily:"Lexend_400Regular", color:T.muted, marginTop:2 },
     mealPrev:     { fontSize:12, fontFamily:"Lexend_400Regular", color:T.muted, marginTop:2, fontStyle:"italic" },
     mealInput:    { borderTopWidth:1, borderTopColor:T.border, padding:10, fontSize:13, fontFamily:"Lexend_400Regular", color:T.text, backgroundColor:T.bg, borderBottomLeftRadius:14, borderBottomRightRadius:14 },
-    actBtn:       { borderWidth:1, borderColor:T.border, borderRadius:7, backgroundColor:T.bg, paddingHorizontal:9, paddingVertical:5 },
-    actBtnRed:    { borderWidth:1, borderColor:T.danger+"33", borderRadius:7, backgroundColor:"#FFF5F5", paddingHorizontal:9, paddingVertical:5 },
+    actBtn:       { borderWidth:1, borderColor:T.border, borderRadius:9, backgroundColor:T.bg, paddingHorizontal:11, paddingVertical:8 },
+    actBtnRed:    { borderWidth:1, borderColor:T.danger+"33", borderRadius:9, backgroundColor:"#FFF5F5", paddingHorizontal:11, paddingVertical:8 },
     addBtn:       { borderWidth:1.5, borderStyle:"dashed", borderRadius:14, padding:15, alignItems:"center", marginTop:4, marginBottom:16 },
     addBtnTxt:    { fontSize:13, fontFamily:"Lexend_600SemiBold" },
 
