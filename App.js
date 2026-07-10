@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  Modal, SafeAreaView, StatusBar, Platform
+  Modal, SafeAreaView, StatusBar, Platform, Animated
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
@@ -637,6 +637,9 @@ function AppInner() {
 
   // ─── Welcome (first run) ───────────────────────────────────────────────────
 
+  // Valeur animee de defilement — pilote le retrecissement de l'en-tete (semaines/jours/progression)
+  const scrollY = useRef(new Animated.Value(0)).current;
+
   const [welcomeStep,        setWelcomeStep]        = useState(1); // 1=name, 2=profile
   const [welcomeProfileSel,  setWelcomeProfileSel]  = useState(null);
 
@@ -665,6 +668,17 @@ function AppInner() {
   var todayWD  = getCurrentWeekAndDay(cycleStart || computeCycleStart());
   var todayAbs = todayWD.week * 7 + todayWD.day;
   var viewedAbs = week * 7 + dayIdx;
+
+  // ── Interpolations pour l'en-tete retractable au defilement ──
+  var weekRowHeight = scrollY.interpolate({ inputRange:[0,70], outputRange:[52,0], extrapolate:"clamp" });
+  var weekRowOpacity = scrollY.interpolate({ inputRange:[0,40], outputRange:[1,0], extrapolate:"clamp" });
+  var dayHeaderPadV = scrollY.interpolate({ inputRange:[0,70], outputRange:[8,3], extrapolate:"clamp" });
+  var dayHeaderNameSize = scrollY.interpolate({ inputRange:[0,70], outputRange:[16,13], extrapolate:"clamp" });
+  var dayHeaderPctSize = scrollY.interpolate({ inputRange:[0,70], outputRange:[18,14], extrapolate:"clamp" });
+  var subInfoOpacity = scrollY.interpolate({ inputRange:[0,50], outputRange:[1,0], extrapolate:"clamp" });
+  var subInfoHeight = scrollY.interpolate({ inputRange:[0,50], outputRange:[16,0], extrapolate:"clamp" });
+  var progressBarHeight = scrollY.interpolate({ inputRange:[0,70], outputRange:[5,0], extrapolate:"clamp" });
+  var progressBarMargin = scrollY.interpolate({ inputRange:[0,70], outputRange:[6,0], extrapolate:"clamp" });
 
   // ─── Task actions ──────────────────────────────────────────────────────────
 
@@ -986,7 +1000,7 @@ function AppInner() {
                 <Text style={s.moveBtnDay}>Changer de profil</Text>
                 <Text style={{ color:T.muted }}>→</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[s.btnCancel,{marginTop:8}]} onPress={function(){ setShowReset(false); setResetStep(1); }}>
+              <TouchableOpacity style={[s.btnCancel,{marginTop:8,flex:0}]} onPress={function(){ setShowReset(false); setResetStep(1); }}>
                 <Text style={s.btnCancelTxt}>Annuler</Text>
               </TouchableOpacity>
             </>
@@ -1285,7 +1299,7 @@ function AppInner() {
           <TouchableOpacity style={s.moveBtn} onPress={function(){ applyEdit("all"); }}>
             <View><Text style={s.moveBtnDay}>Toutes les occurrences</Text><Text style={s.moveBtnDate}>Remplace partout ou cette tache apparait</Text></View>
           </TouchableOpacity>
-          <TouchableOpacity style={[s.btnCancel,{marginTop:8}]} onPress={function(){ setShowEditScope(false); setPendingEdit(null); }}>
+          <TouchableOpacity style={[s.btnCancel,{marginTop:8,flex:0}]} onPress={function(){ setShowEditScope(false); setPendingEdit(null); }}>
             <Text style={s.btnCancelTxt}>Annuler</Text>
           </TouchableOpacity>
         </View></View>
@@ -1309,7 +1323,7 @@ function AppInner() {
               </TouchableOpacity>
             );
           })}
-          <TouchableOpacity style={[s.btnCancel,{marginTop:8}]} onPress={function(){ setMoveMenu(null); }}>
+          <TouchableOpacity style={[s.btnCancel,{marginTop:8,flex:0}]} onPress={function(){ setMoveMenu(null); }}>
             <Text style={s.btnCancelTxt}>Annuler</Text>
           </TouchableOpacity>
         </View></View>
@@ -1333,7 +1347,7 @@ function AppInner() {
               {moveAmbiguous?<Text style={s.moveBtnDate}>{formatDate(getDateForCell(cycleStart,moveAmbiguous.nextWeek,moveAmbiguous.targetDayIdx))}</Text>:null}
             </View>
           </TouchableOpacity>
-          <TouchableOpacity style={[s.btnCancel,{marginTop:8}]} onPress={function(){ setMoveAmbiguous(null); }}>
+          <TouchableOpacity style={[s.btnCancel,{marginTop:8,flex:0}]} onPress={function(){ setMoveAmbiguous(null); }}>
             <Text style={s.btnCancelTxt}>Annuler</Text>
           </TouchableOpacity>
         </View></View>
@@ -1351,7 +1365,7 @@ function AppInner() {
           <TouchableOpacity style={s.moveBtn} onPress={function(){ deleteTask(delMenu.taskId,delMenu.isCustom,delMenu.sourceKey,true,delMenu.movedOccKey); }}>
             <Text style={s.moveBtnDay}>Toutes les occurrences</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[s.btnCancel,{marginTop:8}]} onPress={function(){ setShowDelRepeat(false); setDelMenu(null); }}>
+          <TouchableOpacity style={[s.btnCancel,{marginTop:8,flex:0}]} onPress={function(){ setShowDelRepeat(false); setDelMenu(null); }}>
             <Text style={s.btnCancelTxt}>Annuler</Text>
           </TouchableOpacity>
         </View></View>
@@ -1517,8 +1531,8 @@ function AppInner() {
         </TouchableOpacity>
       </View>
 
-      {/* ── Week tabs ── */}
-      <View style={s.weekRow}>
+      {/* ── Week tabs (retractable au defilement) ── */}
+      <Animated.View style={[s.weekRow,{height:weekRowHeight,opacity:weekRowOpacity,overflow:"hidden"}]}>
         {Array.from({length:WEEKS}).map(function(_,w){
           var active=w===week;
           return (
@@ -1528,7 +1542,7 @@ function AppInner() {
             </TouchableOpacity>
           );
         })}
-      </View>
+      </Animated.View>
 
       {/* ── Day tabs ── */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}
@@ -1556,26 +1570,28 @@ function AppInner() {
         })}
       </ScrollView>
 
-      {/* ── Day header ── */}
-      <View style={[s.dayHeader,{backgroundColor:colors.bg,borderColor:colors.accent+"33",margin:10,marginBottom:6}]}>
+      {/* ── Day header (retractable au defilement) ── */}
+      <Animated.View style={[s.dayHeader,{backgroundColor:colors.bg,borderColor:colors.accent+"33",margin:10,marginBottom:6,paddingVertical:dayHeaderPadV}]}>
         <View style={{flex:1}}>
-          <Text style={[s.dayHeaderTag,{color:colors.accent}]}>{colors.tag}</Text>
-          <Text style={s.dayHeaderName}>{currentDay}</Text>
-          <Text style={s.dayHeaderDate}>{formatDate(todayDate)}</Text>
+          <Animated.Text style={[s.dayHeaderTag,{color:colors.accent,opacity:subInfoOpacity,height:subInfoHeight}]}>{colors.tag}</Animated.Text>
+          <Animated.Text style={[s.dayHeaderName,{fontSize:dayHeaderNameSize}]}>{currentDay}</Animated.Text>
+          <Animated.Text style={[s.dayHeaderDate,{opacity:subInfoOpacity,height:subInfoHeight}]}>{formatDate(todayDate)}</Animated.Text>
         </View>
         <View style={{alignItems:"flex-end"}}>
-          <Text style={[s.dayHeaderPct,{color:pct===100?T.check:colors.accent}]}>{pct}%</Text>
-          <Text style={{fontSize:11,color:T.muted,fontFamily:"Lexend_400Regular"}}>{prog.done}/{prog.total} taches</Text>
+          <Animated.Text style={[s.dayHeaderPct,{color:pct===100?T.check:colors.accent,fontSize:dayHeaderPctSize}]}>{pct}%</Animated.Text>
+          <Animated.Text style={{fontSize:11,color:T.muted,fontFamily:"Lexend_400Regular",opacity:subInfoOpacity,height:subInfoHeight}}>{prog.done}/{prog.total} taches</Animated.Text>
         </View>
-      </View>
+      </Animated.View>
 
-      {/* ── Progress bar ── */}
-      <View style={[s.progressBg,{marginHorizontal:10,marginBottom:6}]}>
-        <View style={[s.progressFill,{width:pct+"%",backgroundColor:pct===100?T.check:colors.accent}]} />
-      </View>
+      {/* ── Progress bar (retractable au defilement) ── */}
+      <Animated.View style={[s.progressBg,{marginHorizontal:10,marginBottom:progressBarMargin,height:progressBarHeight,overflow:"hidden"}]}>
+        <View style={[s.progressFill,{width:pct+"%",backgroundColor:pct===100?T.check:colors.accent,height:"100%"}]} />
+      </Animated.View>
 
       {/* ── Task list ── */}
-      <ScrollView style={{flex:1}} contentContainerStyle={{padding:10,paddingBottom:Platform.OS==="android"?80:40}}>
+      <Animated.ScrollView style={{flex:1}} contentContainerStyle={{padding:10,paddingBottom:Platform.OS==="android"?80:40}}
+        onScroll={Animated.event([{nativeEvent:{contentOffset:{y:scrollY}}}],{useNativeDriver:false})}
+        scrollEventThrottle={16}>
         {tasks.map(function(task){
           var key=taskKey(week,currentDay,task.id);
           var isDone=!!checked[key];
@@ -1584,18 +1600,18 @@ function AppInner() {
           var isCustom=!!task._custom; var isMovedIn=!!task._movedIn;
 
           var actions=(
-            <View style={{flexDirection:"row",gap:4}}>
+            <View style={{flexDirection:"row",gap:6}}>
               <TouchableOpacity style={[s.actBtn,task.important&&{borderColor:T.important}]} onPress={function(){ toggleImportant(task.id); }}>
-                <Text style={{fontSize:12,color:task.important?T.important:T.muted}}>❗</Text>
+                <Text style={{fontSize:19,color:task.important?T.important:T.muted}}>❗</Text>
               </TouchableOpacity>
               <TouchableOpacity style={s.actBtn} onPress={function(){ handleEditPress(task); }}>
-                <Text style={{fontSize:12,color:T.muted}}>✎</Text>
+                <Text style={{fontSize:19,color:T.muted}}>✎</Text>
               </TouchableOpacity>
               <TouchableOpacity style={s.actBtn} onPress={function(){ setMoveMenu({task,label:task.label,taskId:task.id,isCustom}); }}>
-                <Text style={{fontSize:12,color:T.muted}}>⇄</Text>
+                <Text style={{fontSize:19,color:T.muted}}>⇄</Text>
               </TouchableOpacity>
               <TouchableOpacity style={s.actBtnRed} onPress={function(){ handleDeletePress(task); }}>
-                <Text style={{fontSize:12,color:T.danger}}>✕</Text>
+                <Text style={{fontSize:19,color:T.danger}}>✕</Text>
               </TouchableOpacity>
             </View>
           );
@@ -1663,7 +1679,7 @@ function AppInner() {
             <Text style={s.doneSub}>{userName?userName+", "+pickByDate(DONE_MESSAGES, todayDate).charAt(0).toLowerCase()+pickByDate(DONE_MESSAGES, todayDate).slice(1):pickByDate(DONE_MESSAGES, todayDate)}</Text>
           </View>
         ):null}
-      </ScrollView>
+      </Animated.ScrollView>
     </SafeAreaView>
   );
 }
@@ -1675,4 +1691,3 @@ export default Sentry.wrap(function App() {
     </CrashCatcher>
   );
 });
-
