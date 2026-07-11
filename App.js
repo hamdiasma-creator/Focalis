@@ -6,6 +6,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { MaterialIcons } from '@expo/vector-icons';
 import { THEME, makeStyles } from './src/theme';
 import * as Sentry from '@sentry/react-native';
 
@@ -638,7 +639,18 @@ function AppInner() {
   // ─── Welcome (first run) ───────────────────────────────────────────────────
 
   // Valeur animee de defilement — pilote le retrecissement de l'en-tete (semaines/jours/progression)
-  const scrollY = useRef(new Animated.Value(0)).current;
+  // En-tete retractable : un SEUL declenchement d'animation au franchissement d'un seuil,
+  // plutot qu'un recalcul de mise en page a chaque pixel de defilement (cause du tremblement).
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  const collapseAnim = useRef(new Animated.Value(0)).current;
+  function handleListScroll(e) {
+    var y = e.nativeEvent.contentOffset.y;
+    if (y > 60 && !headerCollapsed) setHeaderCollapsed(true);
+    else if (y <= 30 && headerCollapsed) setHeaderCollapsed(false);
+  }
+  useEffect(function () {
+    Animated.timing(collapseAnim, { toValue: headerCollapsed ? 1 : 0, duration: 220, useNativeDriver: false }).start();
+  }, [headerCollapsed]);
 
   const [welcomeStep,        setWelcomeStep]        = useState(1); // 1=name, 2=profile
   const [welcomeProfileSel,  setWelcomeProfileSel]  = useState(null);
@@ -670,15 +682,15 @@ function AppInner() {
   var viewedAbs = week * 7 + dayIdx;
 
   // ── Interpolations pour l'en-tete retractable au defilement ──
-  var weekRowHeight = scrollY.interpolate({ inputRange:[0,70], outputRange:[52,0], extrapolate:"clamp" });
-  var weekRowOpacity = scrollY.interpolate({ inputRange:[0,40], outputRange:[1,0], extrapolate:"clamp" });
-  var dayHeaderPadV = scrollY.interpolate({ inputRange:[0,70], outputRange:[8,3], extrapolate:"clamp" });
-  var dayHeaderNameSize = scrollY.interpolate({ inputRange:[0,70], outputRange:[16,13], extrapolate:"clamp" });
-  var dayHeaderPctSize = scrollY.interpolate({ inputRange:[0,70], outputRange:[18,14], extrapolate:"clamp" });
-  var subInfoOpacity = scrollY.interpolate({ inputRange:[0,50], outputRange:[1,0], extrapolate:"clamp" });
-  var subInfoHeight = scrollY.interpolate({ inputRange:[0,50], outputRange:[16,0], extrapolate:"clamp" });
-  var progressBarHeight = scrollY.interpolate({ inputRange:[0,70], outputRange:[5,0], extrapolate:"clamp" });
-  var progressBarMargin = scrollY.interpolate({ inputRange:[0,70], outputRange:[6,0], extrapolate:"clamp" });
+  var weekRowHeight = collapseAnim.interpolate({ inputRange:[0,1], outputRange:[52,0] });
+  var weekRowOpacity = collapseAnim.interpolate({ inputRange:[0,1], outputRange:[1,0] });
+  var dayHeaderPadV = collapseAnim.interpolate({ inputRange:[0,1], outputRange:[8,3] });
+  var dayHeaderNameSize = collapseAnim.interpolate({ inputRange:[0,1], outputRange:[16,13] });
+  var dayHeaderPctSize = collapseAnim.interpolate({ inputRange:[0,1], outputRange:[18,14] });
+  var subInfoOpacity = collapseAnim.interpolate({ inputRange:[0,1], outputRange:[1,0] });
+  var subInfoHeight = collapseAnim.interpolate({ inputRange:[0,1], outputRange:[16,0] });
+  var progressBarHeight = collapseAnim.interpolate({ inputRange:[0,1], outputRange:[5,0] });
+  var progressBarMargin = collapseAnim.interpolate({ inputRange:[0,1], outputRange:[6,0] });
 
   // ─── Task actions ──────────────────────────────────────────────────────────
 
@@ -1407,8 +1419,8 @@ function AppInner() {
                       {item.checked?<Text style={{color:"#fff",fontSize:11}}>✓</Text>:null}
                     </TouchableOpacity>
                     <Text style={[s.listItemLabel,item.checked&&s.listItemLabelDone]} onPress={function(){ toggleGroceryItem(item.id); }}>{item.label}</Text>
-                    <TouchableOpacity onPress={function(){ deleteGroceryItem(item.id); }}>
-                      <Text style={{color:T.danger,fontSize:14}}>✕</Text>
+                    <TouchableOpacity style={{padding:4}} onPress={function(){ deleteGroceryItem(item.id); }}>
+                      <MaterialIcons name="delete" size={18} color={T.danger} />
                     </TouchableOpacity>
                   </View>
                 );
@@ -1463,8 +1475,8 @@ function AppInner() {
                       {item.checked?<Text style={{color:"#fff",fontSize:11}}>✓</Text>:null}
                     </TouchableOpacity>
                     <Text style={[s.listItemLabel,item.checked&&s.listItemLabelDone]} onPress={function(){ toggleTravelItem(item.id); }}>{item.label}</Text>
-                    <TouchableOpacity onPress={function(){ deleteTravelItem(item.id); }}>
-                      <Text style={{color:T.danger,fontSize:14}}>✕</Text>
+                    <TouchableOpacity style={{padding:4}} onPress={function(){ deleteTravelItem(item.id); }}>
+                      <MaterialIcons name="delete" size={18} color={T.danger} />
                     </TouchableOpacity>
                   </View>
                 );
@@ -1589,9 +1601,9 @@ function AppInner() {
       </Animated.View>
 
       {/* ── Task list ── */}
-      <Animated.ScrollView style={{flex:1}} contentContainerStyle={{padding:10,paddingBottom:Platform.OS==="android"?80:40}}
-        onScroll={Animated.event([{nativeEvent:{contentOffset:{y:scrollY}}}],{useNativeDriver:false})}
-        scrollEventThrottle={16}>
+      <ScrollView style={{flex:1}} contentContainerStyle={{padding:10,paddingBottom:Platform.OS==="android"?80:40}}
+        onScroll={handleListScroll}
+        scrollEventThrottle={100}>
         {tasks.map(function(task){
           var key=taskKey(week,currentDay,task.id);
           var isDone=!!checked[key];
@@ -1600,18 +1612,18 @@ function AppInner() {
           var isCustom=!!task._custom; var isMovedIn=!!task._movedIn;
 
           var actions=(
-            <View style={{flexDirection:"row",gap:6}}>
-              <TouchableOpacity style={[s.actBtn,task.important&&{borderColor:T.important}]} onPress={function(){ toggleImportant(task.id); }}>
-                <Text style={{fontSize:19,color:task.important?T.important:T.muted}}>❗</Text>
+            <View style={{flexDirection:"row",gap:10,alignItems:"center"}}>
+              <TouchableOpacity style={{padding:4}} onPress={function(){ toggleImportant(task.id); }}>
+                <Text style={{fontSize:17,color:task.important?T.important:T.muted}}>❗</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={s.actBtn} onPress={function(){ handleEditPress(task); }}>
-                <Text style={{fontSize:19,color:T.muted}}>✎</Text>
+              <TouchableOpacity style={{padding:4}} onPress={function(){ handleEditPress(task); }}>
+                <MaterialIcons name="edit" size={19} color={T.check} />
               </TouchableOpacity>
-              <TouchableOpacity style={s.actBtn} onPress={function(){ setMoveMenu({task,label:task.label,taskId:task.id,isCustom}); }}>
-                <Text style={{fontSize:19,color:T.muted}}>⇄</Text>
+              <TouchableOpacity style={{padding:4}} onPress={function(){ setMoveMenu({task,label:task.label,taskId:task.id,isCustom}); }}>
+                <MaterialIcons name="compare-arrows" size={20} color={T.muted} />
               </TouchableOpacity>
-              <TouchableOpacity style={s.actBtnRed} onPress={function(){ handleDeletePress(task); }}>
-                <Text style={{fontSize:19,color:T.danger}}>✕</Text>
+              <TouchableOpacity style={{padding:4}} onPress={function(){ handleDeletePress(task); }}>
+                <MaterialIcons name="delete" size={19} color={T.danger} />
               </TouchableOpacity>
             </View>
           );
@@ -1679,7 +1691,7 @@ function AppInner() {
             <Text style={s.doneSub}>{userName?userName+", "+pickByDate(DONE_MESSAGES, todayDate).charAt(0).toLowerCase()+pickByDate(DONE_MESSAGES, todayDate).slice(1):pickByDate(DONE_MESSAGES, todayDate)}</Text>
           </View>
         ):null}
-      </Animated.ScrollView>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -1691,3 +1703,4 @@ export default Sentry.wrap(function App() {
     </CrashCatcher>
   );
 });
+
