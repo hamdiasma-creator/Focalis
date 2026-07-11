@@ -1612,17 +1612,17 @@ function AppInner() {
           var isCustom=!!task._custom; var isMovedIn=!!task._movedIn;
 
           var actions=(
-            <View style={{flexDirection:"row",gap:10,alignItems:"center"}}>
-              <TouchableOpacity style={{padding:4}} onPress={function(){ toggleImportant(task.id); }}>
-                <Text style={{fontSize:17,color:task.important?T.important:T.muted}}>❗</Text>
+            <View style={{flexDirection:"row",gap:2,alignItems:"center"}}>
+              <TouchableOpacity style={{padding:3}} onPress={function(){ toggleImportant(task.id); }}>
+                <Text style={{fontSize:23,color:task.important?T.important:T.muted,lineHeight:23}}>❗</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={{padding:4}} onPress={function(){ handleEditPress(task); }}>
+              <TouchableOpacity style={{padding:3}} onPress={function(){ handleEditPress(task); }}>
                 <MaterialIcons name="edit" size={19} color={T.check} />
               </TouchableOpacity>
-              <TouchableOpacity style={{padding:4}} onPress={function(){ setMoveMenu({task,label:task.label,taskId:task.id,isCustom}); }}>
-                <MaterialIcons name="compare-arrows" size={20} color={T.muted} />
+              <TouchableOpacity style={{padding:3}} onPress={function(){ setMoveMenu({task,label:task.label,taskId:task.id,isCustom}); }}>
+                <MaterialIcons name="compare-arrows" size={19} color={T.muted} />
               </TouchableOpacity>
-              <TouchableOpacity style={{padding:4}} onPress={function(){ handleDeletePress(task); }}>
+              <TouchableOpacity style={{padding:3}} onPress={function(){ handleDeletePress(task); }}>
                 <MaterialIcons name="delete" size={19} color={T.danger} />
               </TouchableOpacity>
             </View>
